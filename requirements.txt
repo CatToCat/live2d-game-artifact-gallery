@@ -1,0 +1,6 @@
+UnityPy>=1.25
+Pillow>=10
+numpy>=2
+requests>=2.31
+PySocks>=1.7
+azlassets>=4.6

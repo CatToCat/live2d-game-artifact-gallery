@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>解包资源查看器 · Azur Lane</title>
+<style>
+  :root{
+    --abyss:#0a1622;      /* 最深海 */
+    --deep:#0f2233;       /* 深海背景 */
+    --steel:#16344a;      /* 钢青 */
+    --wave:#1d4d63;       /* 波纹 */
+    --foam:#8fb9c7;       /* 泡沫灰蓝 */
+    --brass:#d8a24a;      /* 黄铜 */
+    --brass-lit:#f0c063;  /* 亮铜 */
+    --ivory:#eef3f2;      /* 象牙白 */
+    --line:rgba(143,185,199,.16);
+    --mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:
+      radial-gradient(1200px 700px at 80% -10%, rgba(29,77,99,.35), transparent 60%),
+      radial-gradient(900px 600px at 0% 110%, rgba(216,162,74,.08), transparent 55%),
+      var(--abyss);
+    color:var(--ivory);
+    font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  /* 顶栏 */
+  header{
+    display:flex;align-items:baseline;gap:1.2rem;flex-wrap:wrap;
+    padding:1.6rem 2.2rem 1.3rem;
+    border-bottom:1px solid var(--line);
+    position:sticky;top:0;z-index:20;
+    background:linear-gradient(180deg, rgba(10,22,34,.96), rgba(10,22,34,.82));
+    backdrop-filter:blur(10px);
+  }
+  .brand{display:flex;align-items:baseline;gap:.9rem}
+  .brand .mark{
+    font-family:var(--mono);font-size:.72rem;letter-spacing:.32em;
+    color:var(--brass);border:1px solid var(--brass);
+    padding:.28rem .5rem;border-radius:2px;text-transform:uppercase;
+  }
+  h1{font-size:1.28rem;font-weight:600;letter-spacing:.02em}
+  h1 small{display:block;font-family:var(--mono);font-size:.66rem;
+    color:var(--foam);letter-spacing:.18em;margin-top:.25rem;font-weight:400}
+  .tabs{margin-left:auto;display:flex;gap:.4rem}
+  .tab{
+    font-family:var(--mono);font-size:.78rem;letter-spacing:.1em;
+    background:none;border:1px solid transparent;color:var(--foam);
+    padding:.5rem .95rem;border-radius:3px;cursor:pointer;transition:.18s;
+  }
+  .tab:hover{color:var(--ivory);border-color:var(--line)}
+  .tab.on{color:var(--abyss);background:var(--brass);border-color:var(--brass);font-weight:600}
+
+  main{padding:0}
+  .view{display:none}
+  .view.on{display:block}
+
+  /* ===== Live2D 视图 ===== */
+  #live2d-view{display:none}
+  #live2d-view.on{display:block}
+  /* Live2D 卡片网格视图 */
+  #l2d-grid-view{padding:2rem 2.2rem 4rem}
+  /* Live2D 操作台视图 */
+  #l2d-stage-view{height:calc(100vh - 74px);position:relative}
+  .back-btn{
+    position:absolute;top:1.2rem;left:1.4rem;z-index:6;
+    font-family:var(--mono);font-size:.78rem;letter-spacing:.06em;
+    background:rgba(15,34,51,.82);border:1px solid var(--line);color:var(--foam);
+    padding:.5rem .9rem;border-radius:4px;cursor:pointer;backdrop-filter:blur(6px);transition:.15s;
+  }
+  .back-btn:hover{border-color:var(--brass);color:var(--brass-lit)}
+  .search{
+    width:100%;font-family:var(--mono);font-size:.78rem;
+    background:rgba(10,22,34,.6);border:1px solid var(--line);color:var(--ivory);
+    padding:.5rem .7rem;border-radius:4px;margin-bottom:.6rem;outline:none;
+  }
+  .search:focus{border-color:var(--brass)}
+  .search::placeholder{color:var(--foam);opacity:.5}
+  .sortsel{
+    font-family:var(--mono);font-size:.74rem;letter-spacing:.06em;
+    background:rgba(10,22,34,.6);border:1px solid var(--line);color:var(--foam);
+    padding:.5rem .6rem;border-radius:4px;outline:none;cursor:pointer;
+  }
+  .sortsel:focus{border-color:var(--brass)}
+  .stage{position:relative;overflow:hidden;height:100%}
+  #canvas-wrap{position:absolute;inset:0}
+  canvas{display:block;width:100%;height:100%}
+  .stage-hint{
+    position:absolute;left:1.4rem;bottom:1.3rem;font-family:var(--mono);
+    font-size:.7rem;letter-spacing:.1em;color:var(--foam);opacity:.7;
+    pointer-events:none;line-height:1.7;
+  }
+  .stage-hint b{color:var(--brass);font-weight:600}
+  .loading{
+    position:absolute;inset:0;display:grid;place-items:center;
+    font-family:var(--mono);font-size:.8rem;letter-spacing:.2em;color:var(--foam);
+  }
+  .loading::after{content:"";width:34px;height:34px;margin-left:14px;
+    border:2px solid var(--line);border-top-color:var(--brass);
+    border-radius:50%;animation:spin .8s linear infinite;display:inline-block}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* ===== 立绘画廊 ===== */
+  #gallery-view{padding:2rem 2.2rem 4rem}
+  .gallery-head{display:flex;align-items:baseline;gap:1rem;margin-bottom:1.6rem}
+  .gallery-head h2{font-size:1rem;font-weight:600;letter-spacing:.04em}
+  .gallery-head span{font-family:var(--mono);font-size:.72rem;color:var(--foam);letter-spacing:.12em}
+  .grid{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+    gap:1rem;
+  }
+  .card{
+    background:
+      linear-gradient(180deg,rgba(22,52,74,.4),rgba(15,34,51,.2)),
+      repeating-conic-gradient(#12283a 0% 25%, #142c40 0% 50%) 50%/22px 22px;
+    border:1px solid var(--line);border-radius:6px;overflow:hidden;
+    cursor:pointer;transition:.2s;position:relative;
+  }
+  .card:hover{border-color:var(--brass);transform:translateY(-3px)}
+  .card .thumb{height:220px;display:grid;place-items:center;padding:.6rem}
+  .card img{max-width:100%;max-height:100%;object-fit:contain;
+    filter:drop-shadow(0 10px 18px rgba(0,0,0,.4))}
+  .card .name{
+    font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;
+    color:var(--foam);padding:.6rem .7rem;border-top:1px solid var(--line);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .card .badge{
+    position:absolute;top:.5rem;right:.5rem;font-family:var(--mono);
+    font-size:.6rem;letter-spacing:.06em;color:var(--abyss);background:var(--brass);
+    padding:.15rem .4rem;border-radius:3px;font-weight:600;
+  }
+  .card .en{
+    font-family:-apple-system,sans-serif;font-size:.66rem;color:var(--foam);
+    opacity:.6;padding:0 .7rem .5rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    margin-top:-.35rem;
+  }
+  /* 角色详情面板 */
+  .detail{
+    position:fixed;inset:0;z-index:45;display:none;
+    background:rgba(6,14,22,.9);backdrop-filter:blur(8px);padding:2.5rem;
+  }
+  .detail.on{display:grid;place-items:center}
+  .detail-panel{
+    width:min(1200px,94vw);max-height:90vh;display:flex;flex-direction:column;
+    background:linear-gradient(180deg,var(--deep),var(--abyss));
+    border:1px solid var(--line);border-radius:10px;overflow:hidden;
+  }
+  .detail-head{
+    display:flex;align-items:flex-start;justify-content:space-between;
+    padding:1.3rem 1.6rem;border-bottom:1px solid var(--line);
+  }
+  .detail-title{font-size:1.1rem;font-weight:600;color:var(--ivory)}
+  .detail-sub{font-family:var(--mono);font-size:.72rem;color:var(--foam);letter-spacing:.1em;margin-top:.3rem}
+  .detail-grid{
+    padding:1.4rem 1.6rem;overflow-y:auto;display:grid;gap:1rem;
+    grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+  }
+  .detail .close{font-family:var(--mono);font-size:.78rem;color:var(--foam);cursor:pointer;
+    border:1px solid var(--line);padding:.4rem .8rem;border-radius:3px;letter-spacing:.1em;white-space:nowrap}
+  /* 灯箱 */
+  .lightbox{
+    position:fixed;inset:0;z-index:60;display:none;place-items:center;
+    background:rgba(6,14,22,.92);backdrop-filter:blur(6px);padding:3rem;
+  }
+  .lightbox.on{display:grid}
+  .lightbox img{max-width:90vw;max-height:88vh;object-fit:contain;
+    filter:drop-shadow(0 24px 60px rgba(0,0,0,.6))}
+  .lightbox .close{position:absolute;top:1.4rem;right:1.8rem;
+    font-family:var(--mono);font-size:.8rem;color:var(--foam);cursor:pointer;
+    border:1px solid var(--line);padding:.4rem .8rem;border-radius:3px;letter-spacing:.1em}
+  .lightbox .cap{position:absolute;bottom:1.6rem;font-family:var(--mono);
+    font-size:.76rem;color:var(--brass);letter-spacing:.14em}
+
+  @media(max-width:720px){
+    #l2d-grid-view{padding:1.2rem}
+  }
+  /* 动作面板 */
+  .motions{
+    position:absolute;top:1.2rem;right:1.2rem;display:flex;flex-direction:column;
+    gap:.4rem;max-height:calc(100% - 2.4rem);overflow-y:auto;z-index:5;
+    padding:.2rem;
+  }
+  .motions .mbtn{
+    font-family:var(--mono);font-size:.74rem;letter-spacing:.06em;
+    background:rgba(15,34,51,.82);border:1px solid var(--line);color:var(--foam);
+    padding:.42rem .8rem;border-radius:4px;cursor:pointer;transition:.15s;
+    backdrop-filter:blur(6px);text-align:left;white-space:nowrap;
+  }
+  .motions .mbtn:hover{border-color:var(--brass);color:var(--brass-lit)}
+  .motions .mbtn.on{background:var(--brass);color:var(--abyss);border-color:var(--brass);font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="mark">UNPACK</span>
+    <h1>解包资源查看器<small>AZUR LANE · APK ASSET EXTRACTION</small></h1>
+  </div>
+  <nav class="tabs">
+    <button class="tab on" data-view="live2d-view">Live2D 模型</button>
+    <button class="tab" data-view="gallery-view">立绘画廊</button>
+  </nav>
+</header>
+
+<main>
+  <section id="live2d-view" class="view on">
+    <!-- Live2D 卡片网格 -->
+    <div id="l2d-grid-view">
+      <div class="gallery-head">
+        <h2>Live2D 模型</h2>
+        <span id="l2d-count">— 模型</span>
+        <select class="sortsel" id="ship-sort" style="margin-left:auto">
+          <option value="new">最新优先</option>
+          <option value="old">最旧优先</option>
+          <option value="name">名称 A→Z</option>
+        </select>
+        <input class="search" id="ship-search" placeholder="搜索舰装 (拼音/英文)…" autocomplete="off" style="max-width:260px">
+      </div>
+      <div class="grid" id="l2d-grid"></div>
+      <div id="l2d-sentinel" style="height:40px"></div>
+    </div>
+
+    <!-- Live2D 操作台（点卡片进入） -->
+    <div id="l2d-stage-view" style="display:none">
+      <button class="back-btn" id="l2d-back">← 返回列表</button>
+      <div class="stage">
+        <div id="canvas-wrap"><canvas id="live2d-canvas"></canvas></div>
+        <div class="loading" id="l2d-loading">加载模型</div>
+        <div class="motions" id="motion-panel"></div>
+        <div class="stage-hint">
+          <b>拖拽</b> 平移 · <b>滚轮</b> 缩放 · <b>移动鼠标</b> 视线跟随<br>
+          物理与呼吸已还原 · 点击右侧动作按钮播放
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="gallery-view" class="view">
+    <div class="gallery-head">
+      <h2>角色立绘</h2>
+      <span id="paint-count">— 皮肤</span>
+      <select class="sortsel" id="paint-sort" style="margin-left:auto">
+        <option value="new">最新优先</option>
+        <option value="old">最旧优先</option>
+        <option value="name">名称 A→Z</option>
+      </select>
+      <input class="search" id="paint-search" placeholder="搜索角色 (拼音/英文)…" autocomplete="off" style="max-width:260px">
+    </div>
+    <div class="grid" id="paint-grid"></div>
+    <div id="sentinel" style="height:40px"></div>
+  </section>
+</main>
+
+<!-- 角色详情：显示该角色全部皮肤/变体/部件 -->
+<div class="detail" id="detail">
+  <div class="detail-panel">
+    <div class="detail-head">
+      <div>
+        <div class="detail-title" id="detail-title">—</div>
+        <div class="detail-sub" id="detail-sub"></div>
+      </div>
+      <span class="close" id="detail-close">关闭 ✕</span>
+    </div>
+    <div class="detail-grid" id="detail-grid"></div>
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox">
+  <span class="close" id="lb-close">关闭 ✕</span>
+  <img id="lb-img" src="" alt="">
+  <span class="cap" id="lb-cap"></span>
+</div>
+
+<script src="vendor/live2dcubismcore.min.js"></script>
+<script src="vendor/pixi.min.js"></script>
+<script src="vendor/live2d.min.js"></script>
+<script>
+const { Live2DModel } = PIXI.live2d;
+let app, current, manifest;
+let loadToken = 0;              // 递增令牌：只让最后一次点击的结果生效
+const modelCache = new Map();  // path -> Live2DModel，避免重复加载
+const CACHE_MAX = 12;          // 最多缓存模型数，超出销毁最旧的（防内存爆）
+
+function cacheModel(path, model){
+  modelCache.set(path, model);
+  while(modelCache.size > CACHE_MAX){
+    const oldestKey = modelCache.keys().next().value;
+    const old = modelCache.get(oldestKey);
+    modelCache.delete(oldestKey);
+    if(old !== current){ try{ old.destroy(); }catch(e){} }
+  }
+}
+
+async function boot(){
+  manifest = await (await fetch('manifest.json')).json();
+  buildL2dGrid();
+  buildGallery();
+  initPixi();
+  enableInteraction();          // 交互只需绑定一次
+  setupTabs();
+  document.getElementById('l2d-back').onclick = exitStage;
+}
+
+function initPixi(){
+  const canvas = document.getElementById('live2d-canvas');
+  app = new PIXI.Application({
+    view: canvas, resizeTo: canvas.parentElement,
+    backgroundAlpha: 0, antialias: true, autoDensity: true,
+    resolution: window.devicePixelRatio || 1,
+  });
+}
+
+function sortItems(items, mode){
+  const arr = items.slice();
+  if(mode === 'name'){
+    arr.sort((a,b) => a.name.localeCompare(b.name));
+  }else{
+    // new: id 降序; old: id 升序。未匹配(id=-1)始终排末尾
+    const dir = mode === 'old' ? 1 : -1;
+    arr.sort((a,b) => {
+      const av = a.id < 0 ? null : a.id, bv = b.id < 0 ? null : b.id;
+      if(av === null && bv === null) return a.name.localeCompare(b.name);
+      if(av === null) return 1;
+      if(bv === null) return -1;
+      return (av - bv) * dir;
+    });
+  }
+  return arr;
+}
+
+let l2dFiltered = [];
+let l2dShown = 0;
+const L2D_PAGE = 48;
+
+function buildL2dGrid(){
+  const grid = document.getElementById('l2d-grid');
+  const models = manifest.models;
+
+  const appendCards = () => {
+    const slice = l2dFiltered.slice(l2dShown, l2dShown + L2D_PAGE);
+    slice.forEach(m => {
+      const gi = manifest.models.indexOf(m);
+      const card = document.createElement('div');
+      card.className = 'card';
+      const en = m.en ? `<div class="en">${m.en}</div>` : '';
+      const cover = m.cover || '';
+      card.innerHTML = `<div class="thumb"><span class="badge">L2D</span><img loading="lazy" src="${cover}" alt="${m.name}"></div><div class="name">${m.name}</div>${en}`;
+      card.onclick = () => enterStage(gi);
+      grid.appendChild(card);
+    });
+    l2dShown += slice.length;
+  };
+
+  const reset = (items) => {
+    l2dFiltered = items;
+    l2dShown = 0;
+    grid.innerHTML = '';
+    appendCards();
+    document.getElementById('l2d-count').textContent = `${items.length} 模型`;
+  };
+
+  const apply = () => {
+    const q = document.getElementById('ship-search').value.trim().toLowerCase();
+    const mode = document.getElementById('ship-sort').value;
+    let items = q ? models.filter(m => m.name.toLowerCase().includes(q) || (m.en && m.en.toLowerCase().includes(q))) : models;
+    reset(sortItems(items, mode));
+  };
+
+  new IntersectionObserver((entries) => {
+    if(entries[0].isIntersecting && l2dShown < l2dFiltered.length) appendCards();
+  }, {rootMargin:'400px'}).observe(document.getElementById('l2d-sentinel'));
+
+  let t;
+  document.getElementById('ship-search').oninput = () => { clearTimeout(t); t = setTimeout(apply, 180); };
+  document.getElementById('ship-sort').onchange = apply;
+  apply();
+}
+
+// 进入操作台
+function enterStage(i){
+  document.getElementById('l2d-grid-view').style.display = 'none';
+  document.getElementById('l2d-stage-view').style.display = 'block';
+  // stage 之前是 display:none，等浏览器重排后再按真实尺寸 resize，否则画布为 0
+  setTimeout(() => {
+    const wrap = document.getElementById('canvas-wrap');
+    if(wrap.clientWidth > 0){
+      app.renderer.resize(wrap.clientWidth, wrap.clientHeight);
+    }
+    selectShip(i);
+  }, 30);
+}
+// 返回列表
+function exitStage(){
+  if(current){ app.stage.removeChild(current); current = null; }
+  document.getElementById('l2d-stage-view').style.display = 'none';
+  document.getElementById('l2d-grid-view').style.display = 'block';
+}
+
+async function selectShip(i){
+  const token = ++loadToken;               // 本次加载的令牌
+  const path = manifest.models[i].path;
+  const loading = document.getElementById('l2d-loading');
+
+  // 从舞台移除当前模型（缓存的不销毁，仅隐藏）
+  if(current){ app.stage.removeChild(current); current = null; }
+
+  // 命中缓存：瞬间显示
+  if(modelCache.has(path)){
+    const cached = modelCache.get(path);
+    modelCache.delete(path); modelCache.set(path, cached);  // 刷新 LRU 顺序
+    current = cached;
+    app.stage.addChild(cached);
+    layoutModel(cached);
+    buildMotionPanel(cached);
+    loading.style.display = 'none';
+    return;
+  }
+
+  loading.style.display = 'grid';
+  loading.textContent = '加载模型…';
+
+  let model;
+  try{
+    model = await Live2DModel.from(path, { autoInteract:false });
+  }catch(e){
+    if(token !== loadToken) return;        // 已被更晚的点击取代，忽略
+    console.error(e);
+    loading.textContent = '加载失败: ' + e.message;
+    return;
+  }
+
+  // 加载完成时，如果用户已经点了别的模型，丢弃这个结果
+  if(token !== loadToken){
+    cacheModel(path, model);               // 仍缓存，下次点它就快
+    return;
+  }
+
+  cacheModel(path, model);
+  current = model;
+  app.stage.addChild(model);
+  layoutModel(model);
+  buildMotionPanel(model);
+  loading.style.display = 'none';
+}
+
+// 动作面板：列出该模型的动作组，点击播放
+function buildMotionPanel(model){
+  const panel = document.getElementById('motion-panel');
+  panel.innerHTML = '';
+  let groups = [];
+  try{
+    const defs = model.internalModel.settings.motions || {};
+    groups = Object.keys(defs);
+  }catch(e){ groups = []; }
+  if(!groups.length){ return; }
+  // 常见动作排前面
+  const order = ['idle','home','main_1','main_2','main_3','touch_head','touch_body','touch_special','mission','mission_complete','complete','mail','login','wedding'];
+  groups.sort((a,b)=>{
+    const ia=order.indexOf(a), ib=order.indexOf(b);
+    return (ia<0?99:ia)-(ib<0?99:ib);
+  });
+  groups.forEach(g => {
+    const btn = document.createElement('button');
+    btn.className = 'mbtn';
+    btn.textContent = g;
+    btn.onclick = () => {
+      panel.querySelectorAll('.mbtn').forEach(x=>x.classList.remove('on'));
+      btn.classList.add('on');
+      try{ model.motion(g); }catch(e){ console.error('motion', g, e); }
+    };
+    panel.appendChild(btn);
+  });
+}
+
+function layoutModel(model){
+  const W = app.renderer.width / (window.devicePixelRatio||1);
+  const H = app.renderer.height / (window.devicePixelRatio||1);
+  const scale = Math.min(W / model.width, H / model.height) * 0.8;   // 默认 80% 画布
+  model.scale.set(scale);
+  model.anchor.set(0.5, 0.5);
+  model.position.set(W/2, H/2);
+  model._baseScale = scale;
+}
+
+// 平移 / 缩放 / 视线跟随（只绑定一次，始终操作当前模型 current）
+let interactionReady = false;
+function enableInteraction(){
+  if(interactionReady) return;
+  interactionReady = true;
+  const stage = app.view.parentElement;
+  let drag=false, lx=0, ly=0;
+  stage.onpointerdown = e => { drag=true; lx=e.clientX; ly=e.clientY; };
+  window.addEventListener('pointerup', ()=> drag=false);
+  stage.onpointermove = e => {
+    if(!current) return;
+    if(drag){ current.x += e.clientX-lx; current.y += e.clientY-ly; lx=e.clientX; ly=e.clientY; }
+    const r = stage.getBoundingClientRect();
+    current.focus(e.clientX - r.left, e.clientY - r.top);
+  };
+  stage.onwheel = e => {
+    e.preventDefault();
+    if(!current) return;
+    const f = e.deltaY < 0 ? 1.06 : 0.94;
+    current.scale.set(current.scale.x * f);
+  };
+}
+
+let charFiltered = [];
+let charShown = 0;
+const PAGE = 48;
+
+
+function sortChars(items, mode){
+  const arr = items.slice();
+  if(mode === 'name'){
+    arr.sort((a,b) => a.rep.localeCompare(b.rep));
+  }else{
+    const dir = mode === 'old' ? 1 : -1;
+    arr.sort((a,b) => {
+      const av = a.skin < 0 ? null : a.skin, bv = b.skin < 0 ? null : b.skin;
+      if(av === null && bv === null) return a.rep.localeCompare(b.rep);
+      if(av === null) return 1;
+      if(bv === null) return -1;
+      return (av - bv) * dir;
+    });
+  }
+  return arr;
+}
+
+function buildGallery(){
+  const grid = document.getElementById('paint-grid');
+  const chars = manifest.characters;
+
+  const appendCards = () => {
+    const slice = charFiltered.slice(charShown, charShown + PAGE);
+    slice.forEach(c => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      const extra = c.items.length > 1 ? `<span class="badge">${c.items.length}</span>` : '';
+      const en = c.en ? `<div class="en">${c.en}</div>` : '';
+      card.innerHTML = `<div class="thumb">${extra}<img loading="lazy" src="${c.rep_path}" alt="${c.rep}"></div><div class="name">${c.rep}</div>${en}`;
+      card.onclick = () => openDetail(c);
+      grid.appendChild(card);
+    });
+    charShown += slice.length;
+  };
+
+  const reset = (items) => {
+    charFiltered = items;
+    charShown = 0;
+    grid.innerHTML = '';
+    appendCards();
+    const totalImgs = items.reduce((s,c)=>s+c.items.length,0);
+    document.getElementById('paint-count').textContent = `${items.length} 皮肤 · ${totalImgs} 张`;
+  };
+
+  const apply = () => {
+    const q = document.getElementById('paint-search').value.trim().toLowerCase();
+    const mode = document.getElementById('paint-sort').value;
+    let items = chars;
+    if(q){
+      items = chars.filter(c =>
+        c.rep.toLowerCase().includes(q) ||
+        (c.en && c.en.toLowerCase().includes(q)) ||
+        c.items.some(it => it.name.toLowerCase().includes(q))
+      );
+    }
+    reset(sortChars(items, mode));
+  };
+
+  new IntersectionObserver((entries) => {
+    if(entries[0].isIntersecting && charShown < charFiltered.length) appendCards();
+  }, {rootMargin:'400px'}).observe(document.getElementById('sentinel'));
+
+  let t;
+  document.getElementById('paint-search').oninput = () => { clearTimeout(t); t = setTimeout(apply, 180); };
+  document.getElementById('paint-sort').onchange = apply;
+  apply();
+}
+
+function openDetail(c){
+  document.getElementById('detail-title').textContent = c.en || c.rep;
+  document.getElementById('detail-sub').textContent =
+    `${c.rep}　·　${c.items.length} 张`;
+  const grid = document.getElementById('detail-grid');
+  grid.innerHTML = '';
+  c.items.forEach(it => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `<div class="thumb"><img loading="lazy" src="${it.path}" alt="${it.name}"></div><div class="name">${it.name}</div>`;
+    card.onclick = () => openLightbox(it);
+    grid.appendChild(card);
+  });
+  document.getElementById('detail').classList.add('on');
+}
+document.getElementById('detail-close').onclick =
+document.getElementById('detail').onclick = e => {
+  if(e.target.id === 'detail' || e.target.id === 'detail-close')
+    document.getElementById('detail').classList.remove('on');
+};
+
+function openLightbox(p){
+  document.getElementById('lb-img').src = p.path;
+  document.getElementById('lb-cap').textContent = p.name;
+  document.getElementById('lightbox').classList.add('on');
+}
+document.getElementById('lb-close').onclick =
+document.getElementById('lightbox').onclick = e => {
+  if(e.target.id==='lightbox' || e.target.id==='lb-close')
+    document.getElementById('lightbox').classList.remove('on');
+};
+
+function setupTabs(){
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.onclick = () => {
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
+      document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
+      tab.classList.add('on');
+      document.getElementById(tab.dataset.view).classList.add('on');
+    };
+  });
+}
+
+boot();
+</script>
+</body>
+</html>
