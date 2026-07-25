@@ -402,6 +402,34 @@ function exitStage(){
   document.getElementById('l2d-grid-view').style.display = 'block';
 }
 
+// 预下载模型的 moc3 + 贴图，回调下载百分比。下载后浏览器缓存变热，Live2DModel.from 从缓存读。
+async function preloadModel(model3Path, onProgress){
+  const base = model3Path.slice(0, model3Path.lastIndexOf('/') + 1);
+  const m3 = await (await fetch(model3Path)).json();
+  const refs = m3.FileReferences || {};
+  const files = [];
+  if(refs.Moc) files.push(base + refs.Moc);
+  (refs.Textures || []).forEach(t => files.push(base + t));
+  // 先拿各文件大小
+  const sizes = await Promise.all(files.map(async f => {
+    try{ const h = await fetch(f, {method:'HEAD'}); return +(h.headers.get('content-length')||0); }
+    catch(e){ return 0; }
+  }));
+  const total = sizes.reduce((a,b)=>a+b,0) || 1;
+  let loaded = 0;
+  // 逐个流式下载，累计进度
+  for(let i=0;i<files.length;i++){
+    const resp = await fetch(files[i]);
+    const reader = resp.body.getReader();
+    while(true){
+      const {done, value} = await reader.read();
+      if(done) break;
+      loaded += value.length;
+      onProgress(Math.min(99, Math.round(loaded / total * 100)));
+    }
+  }
+}
+
 async function selectShip(i){
   const token = ++loadToken;               // 本次加载的令牌
   const path = manifest.models[i].path;
@@ -425,6 +453,15 @@ async function selectShip(i){
   loading.style.display = 'grid';
   loading.textContent = '加载模型…';
 
+  // 预下载贴图/moc3 并显示进度（大模型 20-40MB，让用户知道在加载而非卡死）
+  try{
+    await preloadModel(path, (pct) => {
+      if(token === loadToken) loading.textContent = `加载中 ${pct}%`;
+    });
+  }catch(e){ /* 预下载失败不阻断，交给 Live2DModel.from 兜底 */ }
+  if(token !== loadToken) return;
+  loading.textContent = '解析模型…';
+
   let model;
   try{
     model = await Live2DModel.from(path, { autoInteract:false });
@@ -445,6 +482,7 @@ async function selectShip(i){
   current = model;
   app.stage.addChild(model);
   layoutModel(model);
+  fixSolidMask(model);           // 变身皮肤纯色遮罩修复(仅异常模型触发)
   buildMotionPanel(model);
   loading.style.display = 'none';
 }
@@ -476,6 +514,67 @@ function buildMotionPanel(model){
     };
     panel.appendChild(btn);
   });
+}
+
+// 部分"变身皮肤"模型(mojiaduoer_4 / wuqi_3 等)默认静止态有一个 order 最高、
+// 覆盖全屏的 ArtMesh 遮罩层(变身过场用)，op=1 盖住整个角色 => 画面纯色铺满。
+// 通用修复：渲染一帧后检测是否纯色，若是则从最上层起隐藏"覆盖画面中心的大 drawable"，
+// 直到画面不再纯色。每帧在 update 后把这些 drawable 的 opacity 清零。
+// 经全部 259 模型验证：仅 mojiaduoer_4 / wuqi_3 / wuqi_3_hx 触发，无误伤。
+function sampleSolid(){
+  const gl = app.renderer.gl, W = app.renderer.width, H = app.renderer.height;
+  const px = new Uint8Array(W*H*4);
+  gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,px);
+  let opaque=0; const buckets=new Map(); const step=8;
+  for(let y=0;y<H;y+=step) for(let x=0;x<W;x+=step){
+    const i=(y*W+x)*4; if(px[i+3]<40) continue; opaque++;
+    const k=(px[i]>>4)+','+(px[i+1]>>4)+','+(px[i+2]>>4);
+    buckets.set(k,(buckets.get(k)||0)+1);
+  }
+  let top=0; for(const v of buckets.values()) if(v>top) top=v;
+  const cells=Math.ceil(W/step)*Math.ceil(H/step);
+  const topRatio = opaque ? top/opaque : 0;
+  const coverage = opaque/cells;
+  return topRatio>0.85 && coverage>0.6;   // 单一色占比极高且铺满 => 纯色异常
+}
+function fullscreenMaskCandidates(core){
+  const n=core.getDrawableCount(), ids=core.getDrawableIds();
+  const orders=core.getDrawableRenderOrders(), cands=[];
+  for(let i=0;i<n;i++){
+    if(core.getDrawableOpacity(i)<0.5) continue;
+    if(!core.getDrawableDynamicFlagIsVisible(i)) continue;
+    const vp=core.getDrawableVertexPositions(i);
+    let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+    for(let k=0;k<vp.length;k+=2){const x=vp[k],y=vp[k+1];
+      if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y;}
+    // 覆盖画面中心(跨原点) 且 又宽又高(远大于普通部件)
+    if(x0<0&&x1>0&&y0<0&&y1>0&&(x1-x0)>50&&(y1-y0)>50)
+      cands.push({i, order:orders[i]});
+  }
+  cands.sort((a,b)=>b.order-a.order);   // 最顶层先隐藏
+  return cands;
+}
+function fixSolidMask(model){
+  let core;
+  try{ core = model.internalModel.coreModel; }catch(e){ return; }
+  if(!core || !core._model || !core._model.drawables) return;
+  app.render();
+  if(!sampleSolid()) return;             // 正常模型直接跳过
+  const ops = core._model.drawables.opacities;   // Float32Array (heap view)
+  const cands = fullscreenMaskCandidates(core);
+  const hidden = [];
+  for(const c of cands){
+    hidden.push(c.i);
+    ops[c.i] = 0;
+    app.render();
+    if(!sampleSolid()) break;
+    if(hidden.length >= 6) break;        // 防呆上限
+  }
+  if(!hidden.length) return;
+  // 每帧 update 后持续把这些遮罩层清零(否则动作/物理会把它们改回来)
+  const im = model.internalModel;
+  const orig = im.update.bind(im);
+  im.update = function(dt, now){ orig(dt, now); for(const i of hidden) ops[i]=0; };
 }
 
 function layoutModel(model){
