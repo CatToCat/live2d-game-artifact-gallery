@@ -1,6 +1,9 @@
 # 大数据：还原产物 & 原始 bundle 缓存（超 GitHub 限制，由脚本生成/下载）
 data/
 cache/
+azur_lane/data/
+azur_lane/cache/
+nikke/data/
 
 # Python 缓存
 __pycache__/
@@ -11,10 +14,10 @@ __pycache__/
 .vscode/
 
 # 运行中间产物
-scripts/.paint_done.txt
-scripts/.paint_chunk_*.txt
-scripts/.ch2_*.txt
-config/hashes_prev/
+**/.paint_done.txt
+**/.paint_chunk_*.txt
+**/.ch2_*.txt
+**/hashes_prev/
 
 # 系统
 Thumbs.db

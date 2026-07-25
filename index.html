@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>游戏解包资源查看器</title>
+<style>
+  :root{
+    --bg:#0a0f16; --ivory:#eef3f2; --dim:#7f95a6;
+    --mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:
+      radial-gradient(1200px 700px at 20% -10%, rgba(29,77,99,.25), transparent 60%),
+      radial-gradient(1200px 700px at 80% 110%, rgba(224,69,95,.15), transparent 60%),
+      var(--bg);
+    color:var(--ivory); font-family:var(--sans); min-height:100vh;
+    display:flex; flex-direction:column; -webkit-font-smoothing:antialiased;
+  }
+  header{padding:2.4rem clamp(1.5rem,5vw,4rem) 0}
+  .mark{
+    font-family:var(--mono); font-size:.72rem; letter-spacing:.32em; color:var(--dim);
+    border:1px solid rgba(143,185,199,.3); padding:.3rem .6rem; border-radius:2px;
+    text-transform:uppercase; display:inline-block;
+  }
+  h1{font-size:1.9rem; font-weight:600; margin-top:1.2rem; letter-spacing:.01em}
+  h1 small{display:block; font-family:var(--mono); font-size:.76rem; color:var(--dim);
+    letter-spacing:.14em; margin-top:.5rem; font-weight:400}
+
+  main{flex:1; display:flex; align-items:center; justify-content:center; padding:3rem clamp(1.5rem,5vw,4rem)}
+  .games{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+    gap:2rem; width:100%; max-width:900px;
+  }
+  .game-card{
+    position:relative; display:block; text-decoration:none; color:inherit;
+    border:1px solid rgba(143,185,199,.18); border-radius:14px; overflow:hidden;
+    aspect-ratio:16/10; transition:.25s cubic-bezier(.4,.14,.3,1);
+    background:#0d1622;
+  }
+  .game-card:hover{transform:translateY(-6px); border-color:var(--card-accent)}
+  .game-card::before{
+    content:""; position:absolute; inset:0; z-index:1;
+    background:linear-gradient(180deg, transparent 30%, rgba(8,12,18,.55) 65%, rgba(8,12,18,.92) 100%);
+  }
+  .game-card .bg{position:absolute; inset:0; background-size:cover; background-position:center top; transition:.4s}
+  .game-card:hover .bg{transform:scale(1.05)}
+  .game-card .info{position:absolute; left:0; right:0; bottom:0; z-index:2; padding:1.4rem 1.6rem}
+  .game-card .title{font-size:1.35rem; font-weight:600; letter-spacing:.01em}
+  .game-card .sub{font-family:var(--mono); font-size:.72rem; color:var(--dim); letter-spacing:.1em; margin-top:.35rem}
+  .game-card .tags{margin-top:.7rem; display:flex; gap:.5rem; flex-wrap:wrap}
+  .game-card .tag{
+    font-family:var(--mono); font-size:.64rem; letter-spacing:.08em;
+    padding:.2rem .55rem; border-radius:3px; border:1px solid;
+  }
+  .azur{--card-accent:#d8a24a}
+  .azur .bg{background:linear-gradient(135deg,#16344a,#1d4d63)}
+  .azur .tag{color:#d8a24a; border-color:rgba(216,162,74,.4)}
+  .azur .arrow{color:#d8a24a}
+  .nikke{--card-accent:#e0455f}
+  .nikke .bg{background:linear-gradient(135deg,#2a1620,#1e0f16)}
+  .nikke .tag{color:#e0455f; border-color:rgba(224,69,95,.4)}
+  .nikke .arrow{color:#e0455f}
+  .game-card .arrow{
+    position:absolute; top:1.3rem; right:1.5rem; z-index:2; font-size:1.4rem;
+    opacity:0; transform:translateX(-6px); transition:.25s;
+  }
+  .game-card:hover .arrow{opacity:1; transform:translateX(0)}
+
+  footer{padding:1.5rem clamp(1.5rem,5vw,4rem); font-family:var(--mono);
+    font-size:.66rem; color:var(--dim); letter-spacing:.1em; text-align:center;
+    border-top:1px solid rgba(143,185,199,.1)}
+</style>
+</head>
+<body>
+<header>
+  <span class="mark">UNPACK</span>
+  <h1>游戏解包资源查看器<small>GAME ARTIFACT GALLERY · 选择游戏</small></h1>
+</header>
+
+<main>
+  <div class="games">
+    <a class="game-card azur" href="azur_lane/viewer/index.html">
+      <div class="bg"></div>
+      <span class="arrow">→</span>
+      <div class="info">
+        <div class="title">碧蓝航线</div>
+        <div class="sub">AZUR LANE</div>
+        <div class="tags">
+          <span class="tag">Live2D · 259</span>
+          <span class="tag">立绘 · 5798</span>
+        </div>
+      </div>
+    </a>
+    <a class="game-card nikke" href="nikke/viewer/index.html">
+      <div class="bg"></div>
+      <span class="arrow">→</span>
+      <div class="info">
+        <div class="title">胜利女神：NIKKE</div>
+        <div class="sub">GODDESS OF VICTORY: NIKKE</div>
+        <div class="tags">
+          <span class="tag">Spine · 25</span>
+        </div>
+      </div>
+    </a>
+  </div>
+</main>
+
+<footer>仅供个人学习研究 · 资源版权归各游戏方所有</footer>
+</body>
+</html>
