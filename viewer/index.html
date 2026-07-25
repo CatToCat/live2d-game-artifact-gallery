@@ -529,10 +529,22 @@ function buildMotionPanel(model){
     btn.onclick = () => {
       panel.querySelectorAll('.mbtn').forEach(x=>x.classList.remove('on'));
       btn.classList.add('on');
-      try{ model.motion(g); }catch(e){ console.error('motion', g, e); }
+      try{
+        // FORCE 优先级：立即打断正在播放的动作，马上播放这个
+        const FORCE = (PIXI.live2d.MotionPriority && PIXI.live2d.MotionPriority.FORCE) || 3;
+        model.motion(g, 0, FORCE);
+      }catch(e){ console.error('motion', g, e); }
     };
     panel.appendChild(btn);
   });
+  // 动作自然播放结束(非被打断)时，熄灭高亮。先移除旧监听避免缓存复用时重复绑定。
+  try{
+    const mm = model.internalModel.motionManager;
+    mm.off('motionFinish');
+    mm.on('motionFinish', () => {
+      panel.querySelectorAll('.mbtn.on').forEach(x=>x.classList.remove('on'));
+    });
+  }catch(e){}
 }
 
 // 部分"变身皮肤"模型(mojiaduoer_4 / wuqi_3 等)默认静止态有一个 order 最高、
