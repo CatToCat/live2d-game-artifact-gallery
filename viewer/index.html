@@ -176,9 +176,9 @@
   }
   .card:hover{border-color:var(--line-lit);transform:translateY(-4px);box-shadow:var(--sh3)}
   .card:active{transform:translateY(-1px)}
-  .card .thumb{height:238px;display:grid;place-items:center;padding:var(--s3);position:relative}
+  .card .thumb{aspect-ratio:4/5;display:grid;place-items:center;padding:var(--s3);position:relative;overflow:hidden;min-height:0}
   /* hover 时图片轻微放大 */
-  .card img{max-width:100%;max-height:100%;object-fit:contain;
+  .card img{width:100%;height:100%;min-width:0;min-height:0;object-fit:contain;
     filter:drop-shadow(0 12px 20px rgba(0,0,0,.45));
     transition:transform .3s var(--ease)}
   .card:hover img{transform:scale(1.04)}
@@ -258,7 +258,7 @@
     .toolbar .controls{width:100%}
     .toolbar .controls .search{flex:1;min-width:0}
     .grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--s3)}
-    .card .thumb{height:200px}
+    .card .thumb{aspect-ratio:4/5}
     .motions{width:150px;top:var(--s2);right:var(--s2)}
   }
   @media(max-width:560px){
@@ -266,7 +266,7 @@
     .brand .mark{display:none}
     .tab{padding:.45rem .7rem;font-size:var(--fx2)}
     .grid{grid-template-columns:repeat(2,1fr);gap:var(--s2)}
-    .card .thumb{height:180px}
+    .card .thumb{aspect-ratio:4/5}
   }
   /* 动作面板：右上角窄抽屉 + 紧凑网格，适合长动作列表 */
   .motions{
@@ -360,6 +360,7 @@
             <option value="4">v4 (4.2)</option>
             <option value="5">v5 (5.0)</option>
           </select>
+          <select class="sortsel card-cols" title="每行卡片数"></select>
           <input class="search" id="ship-search" placeholder="搜索舰装 (拼音/英文)…" autocomplete="off">
         </div>
       </div>
@@ -394,6 +395,7 @@
           <option value="old">最旧优先</option>
           <option value="name">名称 A→Z</option>
         </select>
+        <select class="sortsel card-cols" title="每行卡片数"></select>
         <input class="search" id="paint-search" placeholder="搜索角色 (拼音/英文)…" autocomplete="off">
       </div>
     </div>
@@ -431,6 +433,19 @@ let app, current, manifest;
 let loadToken = 0;              // 递增令牌：只让最后一次点击的结果生效
 const modelCache = new Map();  // path -> Live2DModel，避免重复加载
 const CACHE_MAX = 12;          // 最多缓存模型数，超出销毁最旧的（防内存爆）
+const CARD_COLS_KEY = 'azurlane.cardColumns';
+const CARD_COL_OPTIONS = [
+  ['auto', '自动列数'], ['3', '每行 3 个'], ['4', '每行 4 个'], ['5', '每行 5 个'],
+  ['6', '每行 6 个'], ['8', '每行 8 个'], ['10', '每行 10 个'],
+];
+const MOTION_PRIMARY = [
+  'idle','home','main_1','main_2','main_3','main_4','touch_head','touch_body',
+  'touch_special','mission','mission_complete','complete','mail','login','wedding',
+  'change_in','change_out',
+];
+
+const $ = id => document.getElementById(id);
+const escapeHtml = value => String(value ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 
 function cacheModel(path, model){
   modelCache.set(path, model);
@@ -444,12 +459,54 @@ function cacheModel(path, model){
 
 async function boot(){
   manifest = await (await fetch('manifest.json')).json();
+  setupCardColumns();
   buildL2dGrid();
   buildGallery();
   initPixi();
   enableInteraction();          // 交互只需绑定一次
   setupTabs();
   document.getElementById('l2d-back').onclick = exitStage;
+}
+
+function applyCardColumns(value){
+  document.querySelectorAll('.grid').forEach(grid => {
+    grid.style.gridTemplateColumns = value && value !== 'auto'
+      ? `repeat(${value}, minmax(0, 1fr))`
+      : '';
+  });
+}
+
+function setupCardColumns(){
+  const saved = localStorage.getItem(CARD_COLS_KEY) || 'auto';
+  document.querySelectorAll('.card-cols').forEach(sel => {
+    sel.innerHTML = CARD_COL_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+    sel.value = saved;
+    sel.onchange = () => {
+      localStorage.setItem(CARD_COLS_KEY, sel.value);
+      document.querySelectorAll('.card-cols').forEach(other => { if(other !== sel) other.value = sel.value; });
+      applyCardColumns(sel.value);
+    };
+  });
+  applyCardColumns(saved);
+}
+
+function cardInfo(primary, secondary){
+  return primary
+    ? `<div class="info"><div class="en">${escapeHtml(primary)}</div><div class="name">${escapeHtml(secondary)}</div></div>`
+    : `<div class="info"><div class="name solo">${escapeHtml(secondary)}</div></div>`;
+}
+
+function createCard({img, alt, badge='', leftBadge='', info, onClick}){
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `<div class="thumb">${badge}${leftBadge}<img loading="lazy" src="${escapeHtml(img)}" alt="${escapeHtml(alt)}"></div>${info}`;
+  card.onclick = onClick;
+  return card;
+}
+
+function debounce(fn, wait=180){
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
 }
 
 function initPixi(){
@@ -491,17 +548,15 @@ function buildL2dGrid(){
     const slice = l2dFiltered.slice(l2dShown, l2dShown + L2D_PAGE);
     slice.forEach(m => {
       const gi = manifest.models.indexOf(m);
-      const card = document.createElement('div');
-      card.className = 'card';
       const cover = m.cover || '';
-      const vbadge = m.ver ? `<span class="vbadge">v${m.ver}</span>` : '';
-      // 有英文名：英文名为主标题、内部名弱化为小字；无英文名：内部名当主标题
-      const info = m.en
-        ? `<div class="info"><div class="en">${m.en}</div><div class="name">${m.name}</div></div>`
-        : `<div class="info"><div class="name solo">${m.name}</div></div>`;
-      card.innerHTML = `<div class="thumb"><span class="badge">L2D</span>${vbadge}<img loading="lazy" src="${cover}" alt="${m.name}"></div>${info}`;
-      card.onclick = () => enterStage(gi);
-      grid.appendChild(card);
+      grid.appendChild(createCard({
+        img: cover,
+        alt: m.name,
+        badge: '<span class="badge">L2D</span>',
+        leftBadge: m.ver ? `<span class="vbadge">v${escapeHtml(m.ver)}</span>` : '',
+        info: cardInfo(m.en, m.name),
+        onClick: () => enterStage(gi),
+      }));
     });
     l2dShown += slice.length;
   };
@@ -528,8 +583,7 @@ function buildL2dGrid(){
     if(entries[0].isIntersecting && l2dShown < l2dFiltered.length) appendCards();
   }, {rootMargin:'400px'}).observe(document.getElementById('l2d-sentinel'));
 
-  let t;
-  document.getElementById('ship-search').oninput = () => { clearTimeout(t); t = setTimeout(apply, 180); };
+  document.getElementById('ship-search').oninput = debounce(apply);
   document.getElementById('ship-sort').onchange = apply;
   document.getElementById('ship-ver').onchange = apply;
   apply();
@@ -652,21 +706,17 @@ function buildMotionPanel(model){
   }catch(e){ groups = []; }
   if(!groups.length){ return; }
 
-  // 主要动作固定顺序，排最前
-  const primary = ['idle','home','main_1','main_2','main_3','main_4','touch_head','touch_body',
-                   'touch_special','mission','mission_complete','complete','mail','login','wedding',
-                   'change_in','change_out'];
   // 分类：主要 / idle 系列 / touch 系列 / 其他
   const cats = {main:[], idle:[], touch:[], other:[]};
   groups.forEach(g=>{
-    if(primary.includes(g)) cats.main.push(g);
+    if(MOTION_PRIMARY.includes(g)) cats.main.push(g);
     else if(/^idle/i.test(g)) cats.idle.push(g);
     else if(/^touch/i.test(g)) cats.touch.push(g);
     else cats.other.push(g);
   });
 
   // 主要动作按 primary 顺序；其余按名字自然序
-  cats.main.sort((a,b)=>primary.indexOf(a)-primary.indexOf(b));
+  cats.main.sort((a,b)=>MOTION_PRIMARY.indexOf(a)-MOTION_PRIMARY.indexOf(b));
   const natural = (a,b)=>a.localeCompare(b,undefined,{numeric:true});
   cats.idle.sort(natural); cats.touch.sort(natural); cats.other.sort(natural);
 
@@ -841,18 +891,13 @@ function buildGallery(){
 
   const appendCards = () => {
     const slice = charFiltered.slice(charShown, charShown + PAGE);
-    slice.forEach(c => {
-      const card = document.createElement('div');
-      card.className = 'card';
-      // 皮肤组含多张图时显示数量角标
-      const cbadge = c.items.length > 1 ? `<span class="cbadge">${c.items.length}</span>` : '';
-      const info = c.en
-        ? `<div class="info"><div class="en">${c.en}</div><div class="name">${c.rep}</div></div>`
-        : `<div class="info"><div class="name solo">${c.rep}</div></div>`;
-      card.innerHTML = `<div class="thumb">${cbadge}<img loading="lazy" src="${c.rep_path}" alt="${c.rep}"></div>${info}`;
-      card.onclick = () => openDetail(c);
-      grid.appendChild(card);
-    });
+    slice.forEach(c => grid.appendChild(createCard({
+      img: c.rep_path,
+      alt: c.rep,
+      badge: c.items.length > 1 ? `<span class="cbadge">${c.items.length}</span>` : '',
+      info: cardInfo(c.en, c.rep),
+      onClick: () => openDetail(c),
+    })));
     charShown += slice.length;
   };
 
@@ -883,8 +928,7 @@ function buildGallery(){
     if(entries[0].isIntersecting && charShown < charFiltered.length) appendCards();
   }, {rootMargin:'400px'}).observe(document.getElementById('sentinel'));
 
-  let t;
-  document.getElementById('paint-search').oninput = () => { clearTimeout(t); t = setTimeout(apply, 180); };
+  document.getElementById('paint-search').oninput = debounce(apply);
   document.getElementById('paint-sort').onchange = apply;
   apply();
 }
@@ -896,13 +940,14 @@ function openDetail(c){
   const grid = document.getElementById('detail-grid');
   grid.innerHTML = '';
   c.items.forEach(it => {
-    const card = document.createElement('div');
-    card.className = 'card';
     const kindLabel = {main:'默认', variant:'换装', part:'部件'}[it.kind] || '';
-    const kb = kindLabel ? `<span class="vbadge">${kindLabel}</span>` : '';
-    card.innerHTML = `<div class="thumb">${kb}<img loading="lazy" src="${it.path}" alt="${it.name}"></div><div class="info"><div class="name solo">${it.name}</div></div>`;
-    card.onclick = () => openLightbox(it);
-    grid.appendChild(card);
+    grid.appendChild(createCard({
+      img: it.path,
+      alt: it.name,
+      leftBadge: kindLabel ? `<span class="vbadge">${kindLabel}</span>` : '',
+      info: cardInfo('', it.name),
+      onClick: () => openLightbox(it),
+    }));
   });
   document.getElementById('detail').classList.add('on');
 }
