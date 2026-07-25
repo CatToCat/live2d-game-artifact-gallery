@@ -60,6 +60,18 @@ def suffix_count(name):
     return name.count("_")
 
 
+def moc3_version(moc_path):
+    """读 moc3 文件头的版本号(offset 0x04)。1=Cubism3.0, 2=3.3, 3=4.0, 4=4.2, 5=5.0。读不到返回 0。"""
+    try:
+        with open(moc_path, "rb") as f:
+            head = f.read(8)
+        if head[:4] != b"MOC3":
+            return 0
+        return head[4]
+    except Exception:
+        return 0
+
+
 def pick_rep(items):
     """代表图优先级：_n_rw > _rw > _n > main > 其他 > 部件。"""
     def score(x):
@@ -129,8 +141,9 @@ def generate():
         m3 = os.path.join(C.MODELS_DIR, d, f"{d}.model3.json")
         if os.path.exists(m3):
             _, sid, en, _ = resolve(d, p2info)
+            ver = moc3_version(os.path.join(C.MODELS_DIR, d, f"{d}.moc3"))
             models.append({"name": d, "path": f"../data/models/{d}/{d}.model3.json",
-                           "id": sid, "en": en, "cover": find_cover(d)})
+                           "id": sid, "en": en, "cover": find_cover(d), "ver": ver})
 
     manifest = {"models": models, "characters": chars}
     os.makedirs(C.VIEWER_DIR, exist_ok=True)

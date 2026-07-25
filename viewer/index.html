@@ -135,6 +135,12 @@
     font-size:.6rem;letter-spacing:.06em;color:var(--abyss);background:var(--brass);
     padding:.15rem .4rem;border-radius:3px;font-weight:600;
   }
+  .card .vbadge{
+    position:absolute;top:.5rem;left:.5rem;font-family:var(--mono);
+    font-size:.6rem;letter-spacing:.06em;color:var(--ivory);
+    background:rgba(15,34,51,.9);border:1px solid var(--wave);
+    padding:.15rem .4rem;border-radius:3px;font-weight:600;
+  }
   .card .en{
     font-family:-apple-system,sans-serif;font-size:.66rem;color:var(--foam);
     opacity:.6;padding:0 .7rem .5rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
@@ -219,6 +225,14 @@
           <option value="new">最新优先</option>
           <option value="old">最旧优先</option>
           <option value="name">名称 A→Z</option>
+        </select>
+        <select class="sortsel" id="ship-ver">
+          <option value="">全部版本</option>
+          <option value="1">v1 (3.0)</option>
+          <option value="2">v2 (3.3)</option>
+          <option value="3">v3 (4.0)</option>
+          <option value="4">v4 (4.2)</option>
+          <option value="5">v5 (5.0)</option>
         </select>
         <input class="search" id="ship-search" placeholder="搜索舰装 (拼音/英文)…" autocomplete="off" style="max-width:260px">
       </div>
@@ -350,7 +364,8 @@ function buildL2dGrid(){
       card.className = 'card';
       const en = m.en ? `<div class="en">${m.en}</div>` : '';
       const cover = m.cover || '';
-      card.innerHTML = `<div class="thumb"><span class="badge">L2D</span><img loading="lazy" src="${cover}" alt="${m.name}"></div><div class="name">${m.name}</div>${en}`;
+      const vbadge = m.ver ? `<span class="vbadge">v${m.ver}</span>` : '';
+      card.innerHTML = `<div class="thumb"><span class="badge">L2D</span>${vbadge}<img loading="lazy" src="${cover}" alt="${m.name}"></div><div class="name">${m.name}</div>${en}`;
       card.onclick = () => enterStage(gi);
       grid.appendChild(card);
     });
@@ -368,7 +383,10 @@ function buildL2dGrid(){
   const apply = () => {
     const q = document.getElementById('ship-search').value.trim().toLowerCase();
     const mode = document.getElementById('ship-sort').value;
-    let items = q ? models.filter(m => m.name.toLowerCase().includes(q) || (m.en && m.en.toLowerCase().includes(q))) : models;
+    const ver = document.getElementById('ship-ver').value;   // '' = 全部
+    let items = models;
+    if(q) items = items.filter(m => m.name.toLowerCase().includes(q) || (m.en && m.en.toLowerCase().includes(q)));
+    if(ver) items = items.filter(m => String(m.ver) === ver);
     reset(sortItems(items, mode));
   };
 
@@ -379,6 +397,7 @@ function buildL2dGrid(){
   let t;
   document.getElementById('ship-search').oninput = () => { clearTimeout(t); t = setTimeout(apply, 180); };
   document.getElementById('ship-sort').onchange = apply;
+  document.getElementById('ship-ver').onchange = apply;
   apply();
 }
 
