@@ -186,20 +186,50 @@
   @media(max-width:720px){
     #l2d-grid-view{padding:1.2rem}
   }
-  /* 动作面板 */
+  /* 动作面板：可折叠 + 紧凑网格 */
   .motions{
-    position:absolute;top:1.2rem;right:1.2rem;display:flex;flex-direction:column;
-    gap:.4rem;max-height:calc(100% - 2.4rem);overflow-y:auto;z-index:5;
-    padding:.2rem;
+    position:absolute;top:1.2rem;right:1.2rem;z-index:5;
+    display:flex;flex-direction:column;align-items:flex-end;gap:.5rem;
+    max-height:calc(100% - 2.4rem);
   }
-  .motions .mbtn{
-    font-family:var(--mono);font-size:.74rem;letter-spacing:.06em;
+  /* 折叠开关：显示动作数量，点击展开/收起 */
+  .motions .m-toggle{
+    font-family:var(--mono);font-size:.74rem;letter-spacing:.08em;
     background:rgba(15,34,51,.82);border:1px solid var(--line);color:var(--foam);
-    padding:.42rem .8rem;border-radius:4px;cursor:pointer;transition:.15s;
-    backdrop-filter:blur(6px);text-align:left;white-space:nowrap;
+    padding:.46rem .85rem;border-radius:4px;cursor:pointer;transition:.15s;
+    backdrop-filter:blur(6px);white-space:nowrap;display:inline-flex;
+    align-items:center;gap:.5rem;
+  }
+  .motions .m-toggle:hover{border-color:var(--brass);color:var(--brass-lit)}
+  .motions .m-toggle .caret{transition:transform .2s;font-size:.66rem;opacity:.8}
+  .motions.open .m-toggle{border-color:var(--brass);color:var(--brass-lit)}
+  .motions.open .m-toggle .caret{transform:rotate(180deg)}
+  .motions .m-count{
+    color:var(--brass);font-weight:600;
+    background:rgba(216,162,74,.14);padding:0 .4rem;border-radius:3px;
+  }
+  /* 展开的按钮网格：多列紧凑 chip，可滚动 */
+  .motions .m-list{
+    display:none;grid-template-columns:repeat(2,minmax(0,1fr));gap:.4rem;
+    max-height:calc(100vh - 74px - 6rem);overflow-y:auto;
+    padding:.55rem;border-radius:6px;
+    background:rgba(9,20,31,.88);border:1px solid var(--line);
+    backdrop-filter:blur(8px);
+  }
+  .motions.open .m-list{display:grid}
+  .motions .m-list::-webkit-scrollbar{width:6px}
+  .motions .m-list::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+  .motions .mbtn{
+    font-family:var(--mono);font-size:.72rem;letter-spacing:.04em;
+    background:rgba(15,34,51,.6);border:1px solid var(--line);color:var(--foam);
+    padding:.4rem .55rem;border-radius:4px;cursor:pointer;transition:.15s;
+    text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   }
   .motions .mbtn:hover{border-color:var(--brass);color:var(--brass-lit)}
   .motions .mbtn.on{background:var(--brass);color:var(--abyss);border-color:var(--brass);font-weight:600}
+  @media(max-width:720px){
+    .motions .m-list{grid-template-columns:1fr}
+  }
 </style>
 </head>
 <body>
@@ -249,7 +279,7 @@
         <div class="motions" id="motion-panel"></div>
         <div class="stage-hint">
           <b>拖拽</b> 平移 · <b>滚轮</b> 缩放 · <b>移动鼠标</b> 视线跟随<br>
-          物理与呼吸已还原 · 点击右侧动作按钮播放
+          物理与呼吸已还原 · 点击右上角 <b>动作</b> 展开动作列表
         </div>
       </div>
     </div>
@@ -506,10 +536,11 @@ async function selectShip(i){
   loading.style.display = 'none';
 }
 
-// 动作面板：列出该模型的动作组，点击播放
+// 动作面板：折叠开关 + 紧凑网格，点击播放
 function buildMotionPanel(model){
   const panel = document.getElementById('motion-panel');
   panel.innerHTML = '';
+  panel.classList.remove('open');
   let groups = [];
   try{
     const defs = model.internalModel.settings.motions || {};
@@ -522,12 +553,26 @@ function buildMotionPanel(model){
     const ia=order.indexOf(a), ib=order.indexOf(b);
     return (ia<0?99:ia)-(ib<0?99:ib);
   });
+
+  // 折叠开关
+  const toggle = document.createElement('button');
+  toggle.className = 'm-toggle';
+  toggle.innerHTML = `动作 <span class="m-count">${groups.length}</span><span class="caret">▾</span>`;
+  toggle.onclick = () => panel.classList.toggle('open');
+  panel.appendChild(toggle);
+
+  // 按钮网格
+  const list = document.createElement('div');
+  list.className = 'm-list';
+  panel.appendChild(list);
+
   groups.forEach(g => {
     const btn = document.createElement('button');
     btn.className = 'mbtn';
     btn.textContent = g;
+    btn.title = g;
     btn.onclick = () => {
-      panel.querySelectorAll('.mbtn').forEach(x=>x.classList.remove('on'));
+      list.querySelectorAll('.mbtn').forEach(x=>x.classList.remove('on'));
       btn.classList.add('on');
       try{
         // FORCE 优先级：立即打断正在播放的动作，马上播放这个
@@ -535,14 +580,14 @@ function buildMotionPanel(model){
         model.motion(g, 0, FORCE);
       }catch(e){ console.error('motion', g, e); }
     };
-    panel.appendChild(btn);
+    list.appendChild(btn);
   });
   // 动作自然播放结束(非被打断)时，熄灭高亮。先移除旧监听避免缓存复用时重复绑定。
   try{
     const mm = model.internalModel.motionManager;
     mm.off('motionFinish');
     mm.on('motionFinish', () => {
-      panel.querySelectorAll('.mbtn.on').forEach(x=>x.classList.remove('on'));
+      list.querySelectorAll('.mbtn.on').forEach(x=>x.classList.remove('on'));
     });
   }catch(e){}
 }
