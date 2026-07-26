@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NIKKE · Spine 查看器</title>
+<title>NIKKE · 立绘 / Spine 查看器</title>
+<link rel="stylesheet" href="../../shared/vendor/spine-player.css">
 <style>
   :root{
     --abyss:#12080e; --deep:#1e0f16; --panel:#2a1620;
@@ -40,7 +41,7 @@
   h1 small{display:block; font-family:var(--mono); font-size:.66rem; color:var(--foam);
     letter-spacing:.18em; margin-top:.2rem; font-weight:400}
 
-  .gallery-head{display:flex; align-items:center; gap:1rem; margin-bottom:1.6rem}
+  .gallery-head{display:flex; align-items:center; gap:1rem; margin-bottom:1.6rem; flex-wrap:wrap}
   .gallery-head h2{font-size:1rem; font-weight:600; letter-spacing:.04em}
   .gallery-head span{font-family:var(--mono); font-size:.72rem; color:var(--foam); letter-spacing:.12em}
   .search{
@@ -73,94 +74,182 @@
     letter-spacing:.06em; color:var(--abyss); background:var(--accent);
     padding:.15rem .4rem; border-radius:3px; font-weight:600;
   }
+  .card .poses{
+    position:absolute; bottom:.5rem; left:.5rem; display:flex; gap:.25rem;
+  }
+  .card .poses i{
+    font-family:var(--mono); font-size:.54rem; font-style:normal; letter-spacing:.05em;
+    background:rgba(18,8,14,.72); color:var(--foam); padding:.12rem .32rem; border-radius:3px;
+    border:1px solid var(--line);
+  }
+  .card .poses i.hl{background:var(--accent); color:var(--abyss); border-color:var(--accent); font-weight:600}
 
   #stage-view{height:calc(100vh - var(--header-h)); position:relative; display:none}
   .back-btn{
-    position:absolute; top:1.2rem; left:1.4rem; z-index:6;
+    position:absolute; top:1.2rem; left:1.4rem; z-index:8;
     font-family:var(--mono); font-size:.78rem; letter-spacing:.06em;
     background:rgba(42,22,32,.82); border:1px solid var(--line); color:var(--foam);
     padding:.5rem .9rem; border-radius:4px; cursor:pointer; backdrop-filter:blur(6px); transition:.15s;
   }
   .back-btn:hover{border-color:var(--accent); color:var(--accent-lit)}
   .stage{position:relative; overflow:hidden; height:100%}
-  #canvas-wrap{position:absolute; inset:0}
-  canvas{display:block; width:100%; height:100%}
-  .stage-hint{
-    position:absolute; left:1.4rem; bottom:1.3rem; font-family:var(--mono);
-    font-size:.7rem; letter-spacing:.1em; color:var(--foam); opacity:.7;
-    pointer-events:none; line-height:1.7;
-  }
-  .stage-hint b{color:var(--accent); font-weight:600}
+  #player-container{position:absolute; inset:0}
+  /* spine-player 自带控件的暗色适配 */
+  #player-container .spine-player{background:transparent!important}
+  /* 关键：让 spine-player 画布填满容器，否则退化成 300x150 */
+  #player-container .spine-player-canvas,
+  #player-container canvas{width:100%!important; height:100%!important; display:block}
   .loading{
-    position:absolute; inset:0; display:grid; place-items:center;
+    position:absolute; inset:0; display:none; place-items:center; z-index:6;
     font-family:var(--mono); font-size:.8rem; letter-spacing:.2em; color:var(--foam);
+    pointer-events:none;
   }
+  .loading.on{display:grid}
   .loading::after{content:""; width:34px; height:34px; margin-left:14px;
     border:2px solid var(--line); border-top-color:var(--accent);
     border-radius:50%; animation:spin .8s linear infinite; display:inline-block}
   @keyframes spin{to{transform:rotate(360deg)}}
-  .motions{
-    position:absolute; top:1.2rem; right:1.2rem; display:flex; flex-direction:column;
-    gap:.4rem; max-height:calc(100% - 2.4rem); overflow-y:auto; z-index:5; padding:.2rem;
+  .err{color:var(--accent-lit)}
+
+  .pose-tabs{
+    position:absolute; top:1.2rem; left:50%; transform:translateX(-50%); z-index:8;
+    display:flex; gap:.4rem; background:rgba(30,15,22,.7); padding:.35rem;
+    border:1px solid var(--line); border-radius:6px; backdrop-filter:blur(6px);
   }
-  .motions .mbtn{
-    font-family:var(--mono); font-size:.74rem; letter-spacing:.06em;
-    background:rgba(30,15,22,.82); border:1px solid var(--line); color:var(--foam);
-    padding:.42rem .8rem; border-radius:4px; cursor:pointer; transition:.15s;
-    backdrop-filter:blur(6px); text-align:left; white-space:nowrap;
+  .pose-tabs button{
+    font-family:var(--mono); font-size:.72rem; letter-spacing:.08em; color:var(--foam);
+    background:transparent; border:1px solid transparent; padding:.35rem .8rem;
+    border-radius:4px; cursor:pointer; transition:.15s;
   }
-  .motions .mbtn:hover{border-color:var(--accent); color:var(--accent-lit)}
-  .motions .mbtn.on{background:var(--accent); color:var(--abyss); border-color:var(--accent); font-weight:600}
+  .pose-tabs button:hover{color:var(--accent-lit)}
+  .pose-tabs button.on{background:var(--accent); color:var(--abyss); font-weight:600}
+  .stage-hint{
+    position:absolute; left:1.4rem; bottom:1.3rem; font-family:var(--mono);
+    font-size:.7rem; letter-spacing:.1em; color:var(--foam); opacity:.7;
+    pointer-events:none; line-height:1.7; z-index:7;
+  }
+  .stage-hint b{color:var(--accent); font-weight:600}
+  .ver-badge{
+    position:absolute; top:1.2rem; right:1.4rem; z-index:8; font-family:var(--mono);
+    font-size:.64rem; letter-spacing:.08em; color:var(--foam);
+    background:rgba(30,15,22,.7); border:1px solid var(--line);
+    padding:.3rem .55rem; border-radius:4px;
+  }
+
+  /* 顶部分类导航 */
+  .nav-tabs{margin-left:auto; display:flex; gap:.3rem; background:rgba(0,0,0,.25);
+    padding:.28rem; border-radius:8px;}
+  .nav-tabs button{
+    font-family:var(--mono); font-size:.72rem; letter-spacing:.06em; color:var(--foam);
+    background:transparent; border:none; padding:.42rem .8rem; border-radius:5px;
+    cursor:pointer; transition:.15s; white-space:nowrap;
+  }
+  .nav-tabs button:hover{color:var(--ivory)}
+  .nav-tabs button.on{background:var(--accent); color:var(--abyss); font-weight:600}
+
+  /* 工具栏：计数 + 筛选下拉 + 搜索 */
+  .controls{display:flex; align-items:center; gap:.5rem; margin-left:auto; flex-wrap:wrap}
+  .sortsel{
+    font-family:var(--mono); font-size:.74rem; background:rgba(18,8,14,.6);
+    border:1px solid var(--line); color:var(--ivory); padding:.48rem .6rem;
+    border-radius:4px; outline:none; cursor:pointer; transition:.15s;
+  }
+  .sortsel:hover{border-color:var(--line-lit)}
+  .sortsel:focus{border-color:var(--accent)}
 </style>
 </head>
 <body>
 <header>
   <a class="home-link" href="../../index.html">← 首页</a>
-  <h1>NIKKE<small>SPINE CHARACTER VIEWER</small></h1>
+  <h1>NIKKE<small>立绘 / SPINE VIEWER</small></h1>
+  <nav class="nav-tabs" id="nav-tabs">
+    <button class="on" data-cat="all">全部</button>
+    <button data-cat="character">角色</button>
+    <button data-cat="event">活动</button>
+    <button data-cat="story">剧情</button>
+    <button data-cat="misc">其它</button>
+  </nav>
 </header>
 
 <main>
   <div id="grid-view">
     <div class="gallery-head">
-      <h2>NIKKE · Spine</h2>
+      <h2>NIKKE · 立绘</h2>
       <span id="count">— 角色</span>
-      <input class="search" id="search" placeholder="搜索 NIKKE (英文名)…" autocomplete="off" style="margin-left:auto;max-width:260px">
+      <div class="controls">
+        <select class="sortsel" id="filter-pose" title="姿态筛选">
+          <option value="">全部姿态</option>
+          <option value="fb">立绘</option>
+          <option value="cover">半身</option>
+          <option value="aim">瞄准</option>
+          <option value="skillcut">技能演出</option>
+        </select>
+        <select class="sortsel" id="filter-ver" title="Spine 版本">
+          <option value="">全部版本</option>
+          <option value="4.0">Spine 4.0</option>
+          <option value="4.1">Spine 4.1</option>
+        </select>
+        <select class="sortsel" id="sort-by" title="排序">
+          <option value="id">按 ID</option>
+          <option value="name">名称 A→Z</option>
+          <option value="poses">姿态数多→少</option>
+        </select>
+        <input class="search" id="search" placeholder="搜索 NIKKE (名字/id)…" autocomplete="off" style="max-width:220px">
+      </div>
     </div>
     <div class="grid" id="grid"></div>
     <div id="sentinel" style="height:40px"></div>
   </div>
+
   <div id="stage-view">
     <button class="back-btn" id="back">← 返回列表</button>
+    <div class="pose-tabs" id="pose-tabs"></div>
+    <div class="ver-badge" id="ver-badge"></div>
     <div class="stage">
-      <div id="canvas-wrap"><canvas id="canvas"></canvas></div>
+      <div id="player-container"></div>
       <div class="loading" id="loading">加载模型</div>
-      <div class="motions" id="motion-panel"></div>
       <div class="stage-hint">
-        <b>拖拽</b> 平移 · <b>滚轮</b> 缩放<br>
-        Spine 骨骼动画 · 点击右侧动作按钮播放
+        <b>拖拽</b> 平移 · <b>滚轮</b> 缩放 · 底部控件可切换动作/播放<br>
+        EsotericSoftware Spine · 自动匹配 4.0 / 4.1 runtime
       </div>
     </div>
   </div>
 </main>
 
-<script src="../../shared/vendor/pixi.min.js"></script>
-<script src="../../shared/vendor/pixi-spine.js"></script>
+<script src="../../shared/vendor/spine-player4.0.js"></script>
+<script src="../../shared/vendor/spine-player4.1.js"></script>
 <script>
-let manifest = null, app = null, current = null, token = 0;
-const cache = new Map();
-const CACHE_MAX = 8;
+const POSE_LABEL = { fb: '立绘', cover: '半身', aim: '瞄准', skillcut: '技能演出' };
+const DEFAULT_ANIM = { fb: 'idle', cover: 'cover_idle', aim: 'aim_idle', skillcut: 'idle' };
+
+let manifest = null;
+let current = { idx: -1, pose: 'fb' };
+let player = null;
+let loadToken = 0;
+const ui = { cat: 'all', pose: '', ver: '', sort: 'id', q: '' };
 
 async function boot(){
   manifest = await (await fetch('nikke_manifest.json')).json();
-  const canvas = document.getElementById('canvas');
-  app = new PIXI.Application({
-    view: canvas, resizeTo: canvas.parentElement,
-    backgroundAlpha: 0, antialias: true, autoDensity: true,
-    resolution: window.devicePixelRatio || 1,
-  });
-  enableInteraction();
   buildGrid();
   document.getElementById('back').onclick = exitStage;
+}
+
+const CAT_NOUN = { all:'条目', character:'角色', event:'活动', story:'剧情', misc:'其它' };
+
+function applyFilters(){
+  let items = manifest.characters;
+  if(ui.cat !== 'all') items = items.filter(c => (c.category||'misc') === ui.cat);
+  if(ui.pose) items = items.filter(c => c.poses && c.poses[ui.pose]);
+  if(ui.ver)  items = items.filter(c => String(c.version) === ui.ver);
+  if(ui.q){
+    const q = ui.q;
+    items = items.filter(c => c.name.toLowerCase().includes(q) || c.id.toLowerCase().includes(q));
+  }
+  items = items.slice();
+  if(ui.sort === 'name') items.sort((a,b)=>a.name.localeCompare(b.name));
+  else if(ui.sort === 'poses') items.sort((a,b)=>Object.keys(b.poses).length-Object.keys(a.poses).length);
+  else items.sort((a,b)=>a.id.localeCompare(b.id));
+  return items;
 }
 
 function buildGrid(){
@@ -171,128 +260,188 @@ function buildGrid(){
   const append = () => {
     filtered.slice(shown, shown+PAGE).forEach(c => {
       const idx = chars.indexOf(c);
+      const poseKeys = Object.keys(c.poses||{});
       const card = document.createElement('div');
       card.className = 'card';
-      card.innerHTML = `<div class="thumb"><span class="badge">SPINE</span><img loading="lazy" src="${c.cover||''}" alt="${c.name}"></div><div class="name">${c.name}</div>`;
-      card.onclick = () => enterStage(idx);
+      card.innerHTML =
+        `<div class="thumb">`+
+          `<span class="badge">${c.version||''}</span>`+
+          `<img loading="lazy" src="${c.cover||''}" alt="${c.name}">`+
+          `<div class="poses">${poseKeys.map(p=>`<i${p===ui.pose?' class="hl"':''}>${POSE_LABEL[p]||p}</i>`).join('')}</div>`+
+        `</div>`+
+        `<div class="name">${c.name}${c.name!==c.id?` · ${c.id}`:''}</div>`;
+      card.onclick = () => enterStage(idx, ui.pose || null);
       grid.appendChild(card);
     });
     shown += Math.min(PAGE, filtered.length - shown);
   };
-  const reset = (items) => { filtered = items; shown = 0; grid.innerHTML=''; append(); document.getElementById('count').textContent = `${items.length} 角色`; };
-  new IntersectionObserver(e=>{ if(e[0].isIntersecting && shown<filtered.length) append(); },{rootMargin:'400px'}).observe(document.getElementById('sentinel'));
+  const reset = () => {
+    filtered = applyFilters(); shown = 0; grid.innerHTML = ''; append();
+    document.getElementById('count').textContent = `${filtered.length} ${CAT_NOUN[ui.cat]||'条目'}`;
+  };
+  new IntersectionObserver(e=>{ if(e[0].isIntersecting && shown<filtered.length) append(); },{rootMargin:'400px'})
+    .observe(document.getElementById('sentinel'));
+
+  // 顶部分类导航
+  document.querySelectorAll('#nav-tabs button').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('#nav-tabs button').forEach(b=>b.classList.remove('on'));
+      btn.classList.add('on');
+      ui.cat = btn.dataset.cat; reset();
+    };
+  });
+  // 筛选/排序下拉
+  document.getElementById('filter-pose').onchange = e => { ui.pose = e.target.value; reset(); };
+  document.getElementById('filter-ver').onchange  = e => { ui.ver = e.target.value; reset(); };
+  document.getElementById('sort-by').onchange     = e => { ui.sort = e.target.value; reset(); };
+  // 搜索
   let t;
   document.getElementById('search').oninput = () => { clearTimeout(t); t=setTimeout(()=>{
-    const q=document.getElementById('search').value.trim().toLowerCase();
-    reset(q ? chars.filter(c=>c.name.toLowerCase().includes(q)) : chars);
+    ui.q = document.getElementById('search').value.trim().toLowerCase(); reset();
   }, 180); };
-  reset(chars);
+
+  reset();
 }
 
-function enterStage(i){
+function enterStage(i, preferPose){
+  current.idx = i;
+  const c = manifest.characters[i];
+  // 默认姿态：筛选指定 > fb > 第一个
+  current.pose = (preferPose && c.poses[preferPose]) ? preferPose
+    : (c.poses.fb ? 'fb' : Object.keys(c.poses)[0]);
   document.getElementById('grid-view').style.display = 'none';
   document.getElementById('stage-view').style.display = 'block';
-  setTimeout(()=>{
-    const wrap = document.getElementById('canvas-wrap');
-    if(wrap.clientWidth>0) app.renderer.resize(wrap.clientWidth, wrap.clientHeight);
-    select(i);
-  }, 30);
+  buildPoseTabs(c);
+  setTimeout(()=> loadPose(), 30);
 }
+
 function exitStage(){
-  if(current){ app.stage.removeChild(current); current=null; }
+  disposePlayer();
   document.getElementById('stage-view').style.display = 'none';
   document.getElementById('grid-view').style.display = 'block';
 }
 
-async function select(i){
-  const tk = ++token;
-  const c = manifest.characters[i];
-  const loading = document.getElementById('loading');
-  if(current){ app.stage.removeChild(current); current=null; }
-
-  if(cache.has(c.name)){
-    const cached = cache.get(c.name);
-    cache.delete(c.name); cache.set(c.name, cached);
-    current = cached; app.stage.addChild(cached);
-    layout(cached); buildMotions(cached);
-    loading.style.display='none';
-    return;
-  }
-  loading.style.display='grid'; loading.textContent='加载模型…';
-
-  const skelUrl = `${c.dir}/${c.skel}`;
-  try{
-    const spine = await new Promise((resolve, reject) => {
-      const loader = new PIXI.Loader();
-      loader.add(c.name, skelUrl, { metadata: { spineMetadata: {} } });
-      loader.load((l, res) => {
-        const r = res[c.name];
-        if(r && r.spineData) resolve(new PIXI.spine.Spine(r.spineData));
-        else reject(new Error('no spineData'));
-      });
-      loader.onError.add(e => reject(new Error(e.message||'loader error')));
-    });
-    if(tk !== token){ cacheAdd(c.name, spine); return; }
-    cacheAdd(c.name, spine);
-    current = spine;
-    app.stage.addChild(spine);
-    layout(spine);
-    buildMotions(spine);
-    loading.style.display='none';
-  }catch(e){
-    if(tk!==token) return;
-    loading.textContent = '加载失败: ' + e.message;
-  }
-}
-
-function cacheAdd(name, spine){
-  cache.set(name, spine);
-  while(cache.size > CACHE_MAX){
-    const k = cache.keys().next().value;
-    const old = cache.get(k); cache.delete(k);
-    if(old !== current){ try{ old.destroy(); }catch(e){} }
-  }
-}
-
-function layout(spine){
-  const W = app.renderer.width/(window.devicePixelRatio||1);
-  const H = app.renderer.height/(window.devicePixelRatio||1);
-  const scale = Math.min(W/spine.width, H/spine.height) * 0.8;
-  spine.scale.set(scale);
-  spine.position.set(W/2, H*0.92);
-}
-
-function buildMotions(spine){
-  const panel = document.getElementById('motion-panel');
-  panel.innerHTML = '';
-  const anims = spine.spineData.animations.map(a=>a.name);
-  anims.forEach(name => {
-    const btn = document.createElement('button');
-    btn.className = 'mbtn'; btn.textContent = name;
-    btn.onclick = () => {
-      panel.querySelectorAll('.mbtn').forEach(x=>x.classList.remove('on'));
-      btn.classList.add('on');
-      try{ spine.state.setAnimation(0, name, true); }catch(e){ console.error(e); }
+function buildPoseTabs(c){
+  const tabs = document.getElementById('pose-tabs');
+  tabs.innerHTML = '';
+  Object.keys(c.poses).forEach(pose => {
+    const b = document.createElement('button');
+    b.textContent = POSE_LABEL[pose] || pose;
+    b.classList.toggle('on', pose === current.pose);
+    b.onclick = () => {
+      if(pose === current.pose) return;
+      current.pose = pose;
+      tabs.querySelectorAll('button').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on');
+      loadPose();
     };
-    panel.appendChild(btn);
+    tabs.appendChild(b);
   });
-  if(anims.length){ spine.state.setAnimation(0, anims[0], true); panel.querySelector('.mbtn')?.classList.add('on'); }
 }
 
-function enableInteraction(){
-  const stage = app.view.parentElement;
-  let drag=false, lx=0, ly=0;
-  stage.addEventListener('pointerdown', e=>{ drag=true; lx=e.clientX; ly=e.clientY; });
-  window.addEventListener('pointerup', ()=> drag=false);
-  stage.addEventListener('pointermove', e=>{
-    if(!current||!drag) return;
-    current.x += e.clientX-lx; current.y += e.clientY-ly; lx=e.clientX; ly=e.clientY;
+function disposePlayer(){
+  if(player){
+    try{ player.dispose(); }catch(e){}
+    player = null;
+  }
+  document.getElementById('player-container').innerHTML = '';
+}
+
+function setLoading(on, msg, isErr){
+  const el = document.getElementById('loading');
+  el.classList.toggle('on', on);
+  el.classList.toggle('err', !!isErr);
+  if(msg) el.textContent = msg;
+}
+
+async function loadPose(){
+  const tk = ++loadToken;
+  const c = manifest.characters[current.idx];
+  const info = c.poses[current.pose];
+  if(!info){ setLoading(true, '该姿态无资源', true); return; }
+
+  disposePlayer();
+  setLoading(true, '加载模型…');
+
+  const sub = info.sub ? info.sub + '/' : '';
+  const base = `${c.dir}/${sub}`;
+  const skelUrl = base + info.skel;
+  const atlasUrl = base + info.atlas;
+
+  document.getElementById('ver-badge').textContent = `Spine ${info.version}`;
+
+  try {
+    // 读取 skel 为 arraybuffer -> 检测版本 + 转 base64 dataURI
+    const buf = await (await fetch(skelUrl)).arrayBuffer();
+    if(tk !== loadToken) return;
+
+    const versionString = new TextDecoder().decode(new Uint8Array(buf).slice(0, 16)).replace(/\0/g,'');
+    let runtime;
+    if(/4\.0\.\d+/.test(versionString)) runtime = spine40;
+    else if(/4\.1\.\d+/.test(versionString)) runtime = spine41;
+    else runtime = (info.version === '4.0') ? spine40 : spine41;
+
+    const dataUri = await blobToDataURL(new Blob([buf]));
+    if(tk !== loadToken) return;
+
+    // 关键：spine-player 在构造时按容器 clientWidth/Height 分配 WebGL 画布，
+    // 若此刻容器尺寸为 0（stage 刚 display 出来）会退化成 300x150。
+    // 等到容器有真实尺寸再构造。
+    await waitForSize('player-container');
+    if(tk !== loadToken) return;
+
+    const key = `${c.id}_${current.pose}`;
+    const wantAnim = DEFAULT_ANIM[current.pose];
+    player = new runtime.SpinePlayer('player-container', {
+      skelUrl: key,
+      rawDataURIs: { [key]: dataUri },
+      atlasUrl,
+      // 不在构造时指定 animation：若名字不存在 spine-player 会直接报错。
+      // 统一在 success 里根据实际可用动画智能选择。
+      premultipliedAlpha: true,
+      alpha: true,
+      backgroundColor: '#00000000',
+      mipmaps: current.pose === 'fb',
+      preserveDrawingBuffer: true,
+      showControls: true,
+      defaultMix: 0.25,
+      success: (pl) => {
+        if(tk!==loadToken) return;
+        setLoading(false);
+        try{
+          const anims = pl.animationState.data.skeletonData.animations.map(a=>a.name);
+          if(!anims.length) return;
+          // 优先该姿态的默认动画名，其次含 idle 的，最后第一个
+          const pick = anims.includes(wantAnim) ? wantAnim
+            : (anims.find(a=>/idle/i.test(a)) || anims[0]);
+          pl.setAnimation(pick, true);
+        }catch(e){}
+      },
+      error: (pl, msg) => { if(tk===loadToken) setLoading(true, '加载失败: ' + (msg||''), true); },
+    });
+  } catch(e){
+    if(tk===loadToken) setLoading(true, '加载失败: ' + e.message, true);
+  }
+}
+
+function blobToDataURL(blob){
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = rej;
+    fr.readAsDataURL(blob);
   });
-  stage.addEventListener('wheel', e=>{
-    e.preventDefault();
-    if(!current) return;
-    const f = e.deltaY<0 ? 1.06 : 0.94;
-    current.scale.set(current.scale.x*f);
+}
+
+function waitForSize(id){
+  return new Promise(res => {
+    const el = document.getElementById(id);
+    let tries = 0;
+    const check = () => {
+      if((el.clientWidth > 1 && el.clientHeight > 1) || tries++ > 60) res();
+      else requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
   });
 }
 
