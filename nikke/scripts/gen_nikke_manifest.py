@@ -94,15 +94,47 @@ def scan_legacy(rdir, cid):
 
 
 def load_name_map():
-    """从 _fetched.json 拿 id->显示名 / version。"""
+    """构建 id->显示名 映射，多来源合并（优先级低->高）：
+      1. 现有 manifest（保留此前已解析出的真实名字，避免被覆盖）
+      2. CDN 索引 l2d.json（若能读到）
+      3. _fetched.json（本次抓取；扫描补漏时 name 可能是 id 占位）
+
+    注意：_fetched.json 在 --scan-existing 补漏后其 name 多为 id 占位，
+    不能让它覆盖来源 1/2 里已有的真实名字，因此占位名（name==id）不参与覆盖。
+    """
     names = {}
+
+    # 1. 现有 manifest 的名字（最先加载，作为基础，后续来源仅补充/覆盖为“非占位”名）
+    if os.path.exists(C.MANIFEST_PATH):
+        try:
+            m = json.load(open(C.MANIFEST_PATH, encoding="utf-8"))
+            for c in m.get("characters", []):
+                if c.get("name") and c["name"] != c["id"]:
+                    names[c["id"]] = c["name"]
+        except Exception:
+            pass
+
+    # 2. CDN 索引 l2d.json（本地缓存或运行时不一定可用，容错处理）
+    idx_path = os.path.join(C.DATA_DIR, "_l2d_index.json")
+    if os.path.exists(idx_path):
+        try:
+            for e in json.load(open(idx_path, encoding="utf-8")):
+                if e.get("name"):
+                    names[e["id"]] = e["name"]
+        except Exception:
+            pass
+
+    # 3. _fetched.json —— 仅采用“非占位”名字（name != id），避免覆盖真实名
     meta_path = os.path.join(C.DATA_DIR, "_fetched.json")
     if os.path.exists(meta_path):
         try:
             for e in json.load(open(meta_path, encoding="utf-8")):
-                names[e["id"]] = e.get("name", e["id"])
+                nm = e.get("name", e["id"])
+                if nm and nm != e["id"]:
+                    names[e["id"]] = nm
         except Exception:
             pass
+
     return names
 
 

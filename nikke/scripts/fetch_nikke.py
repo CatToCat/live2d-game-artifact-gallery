@@ -30,7 +30,14 @@ def make_session():
     s = requests.Session()
     if C.PROXY:
         s.proxies.update({"http": C.PROXY, "https": C.PROXY})
-    s.headers.update({"User-Agent": "nikke-gallery/1.0"})
+    # Cloudflare Pages（nikke-db-legacy.pages.dev）会对缺少 UA/Referer 的请求返回 403，
+    # 需伪装为浏览器并带上 Referer 才能正常拿到资源。
+    s.headers.update({
+        "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/120.0 Safari/537.36"),
+        "Referer": "https://nikke-db-legacy.pages.dev/",
+    })
     return s
 
 
@@ -135,7 +142,11 @@ def fetch_character(session, entry):
     result = {"id": cid, "name": entry["name"], "poses": {}}
     if "version" in entry:
         result["version"] = entry["version"]
+    # only_missing=True 时只补抓本地尚不存在的姿态（用于扫描补漏，不重复下载）
+    only_missing = entry.get("only_missing", False)
     for pose in C.POSES:
+        if only_missing and _pose_exists_local(cid, pose):
+            continue
         info = fetch_pose(session, cid, pose)
         if info:
             result["poses"][pose] = info
@@ -146,6 +157,15 @@ def fetch_character(session, entry):
     if icon:
         result["icon"] = icon
     return result
+
+
+def _pose_exists_local(cid, pose):
+    """本地是否已存在该姿态的 skel（用于扫描模式跳过已抓取的姿态）。"""
+    sub, skel_name, _ = pose_paths(cid, pose)
+    local_dir = (os.path.join(C.DATA_DIR, cid, sub.rstrip("/"))
+                 if sub else os.path.join(C.DATA_DIR, cid))
+    skel = os.path.join(local_dir, skel_name)
+    return os.path.exists(skel) and os.path.getsize(skel) > 0
 
 
 def fetch_icon(session, cid):
@@ -167,23 +187,59 @@ def fetch_icon(session, cid):
     return "_icon.png"
 
 
+def scan_existing_ids():
+    """扫描 data/ 下已有的角色目录，返回符合 cNNN[_skin] 命名的 id 列表。
+
+    用于补漏：Nikke-db 的 l2d.json 索引并不完整（例如 c515 及大量角色未收录），
+    但 CDN 上其 fb/cover/aim 资源实际存在。这些角色往往只由 extract_local.py
+    从本地客户端缓存提取到 skillcut，缺少常规立绘/半身/瞄准。
+    """
+    import re
+    ids = []
+    for name in sorted(os.listdir(C.DATA_DIR)):
+        p = os.path.join(C.DATA_DIR, name)
+        if not os.path.isdir(p):
+            continue
+        # 仅处理标准角色 id（c + 3位数字，可带 _NN 皮肤后缀）
+        if re.match(r"^c\d{3}(_\d{2})?$", name):
+            ids.append(name)
+    return ids
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("ids", nargs="*", help="只拉取指定角色 id")
     ap.add_argument("--limit", type=int, default=0, help="只拉前 N 个角色")
+    ap.add_argument("--scan-existing", action="store_true",
+                    help="不依赖索引，扫描 data/ 已有角色目录逐个补抓 CDN 上的 fb/cover/aim")
+    ap.add_argument("--only-missing", action="store_true",
+                    help="仅补抓本地尚不存在的姿态（配合 --scan-existing 使用，避免重复下载）")
     args = ap.parse_args()
 
     session = make_session()
-    print("拉取索引 ...")
-    index = fetch_index(session)
-    print(f"索引共 {len(index)} 个条目")
 
-    if args.ids:
-        wanted = set(args.ids)
-        index = [e for e in index if e["id"] in wanted]
-    if args.limit:
-        index = index[: args.limit]
-    print(f"本次处理 {len(index)} 个角色")
+    if args.scan_existing:
+        ids = scan_existing_ids()
+        if args.ids:
+            wanted = set(args.ids)
+            ids = [i for i in ids if i in wanted]
+        if args.limit:
+            ids = ids[: args.limit]
+        # 扫描模式下无索引名字，用 id 占位
+        index = [{"id": i, "name": i, "only_missing": args.only_missing}
+                 for i in ids]
+        print(f"扫描到 {len(index)} 个已有角色目录，逐个探测 CDN 补抓姿态")
+    else:
+        print("拉取索引 ...")
+        index = fetch_index(session)
+        print(f"索引共 {len(index)} 个条目")
+
+        if args.ids:
+            wanted = set(args.ids)
+            index = [e for e in index if e["id"] in wanted]
+        if args.limit:
+            index = index[: args.limit]
+        print(f"本次处理 {len(index)} 个角色")
 
     os.makedirs(C.DATA_DIR, exist_ok=True)
     results = []
