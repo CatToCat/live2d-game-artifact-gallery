@@ -9,17 +9,18 @@
     --bg:#0a0f16; --ivory:#eef3f2; --dim:#7f95a6;
     --mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace;
     --sans:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    --ease:cubic-bezier(.4,.14,.3,1);
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{
     background:
-      radial-gradient(1200px 700px at 20% -10%, rgba(29,77,99,.25), transparent 60%),
-      radial-gradient(1200px 700px at 80% 110%, rgba(224,69,95,.15), transparent 60%),
+      radial-gradient(1200px 700px at 20% -10%, rgba(29,77,99,.28), transparent 60%),
+      radial-gradient(1200px 700px at 80% 110%, rgba(224,69,95,.16), transparent 60%),
       var(--bg);
     color:var(--ivory); font-family:var(--sans); min-height:100vh;
     display:flex; flex-direction:column; -webkit-font-smoothing:antialiased;
   }
-  header{padding:2.4rem clamp(1.5rem,5vw,4rem) 0}
+  header{padding:2.8rem clamp(1.5rem,5vw,4rem) 0}
   .mark{
     font-family:var(--mono); font-size:.72rem; letter-spacing:.32em; color:var(--dim);
     border:1px solid rgba(143,185,199,.3); padding:.3rem .6rem; border-radius:2px;
@@ -31,43 +32,68 @@
 
   main{flex:1; display:flex; align-items:center; justify-content:center; padding:3rem clamp(1.5rem,5vw,4rem)}
   .games{
-    display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
-    gap:2rem; width:100%; max-width:900px;
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr));
+    gap:2rem; width:100%; max-width:940px;
   }
   .game-card{
     position:relative; display:block; text-decoration:none; color:inherit;
-    border:1px solid rgba(143,185,199,.18); border-radius:14px; overflow:hidden;
-    aspect-ratio:16/10; transition:.25s cubic-bezier(.4,.14,.3,1);
-    background:#0d1622;
+    border:1px solid rgba(143,185,199,.18); border-radius:16px; overflow:hidden;
+    aspect-ratio:16/10; transition:.3s var(--ease);
+    background:#0d1622; box-shadow:0 10px 30px rgba(0,0,0,.35);
   }
-  .game-card:hover{transform:translateY(-6px); border-color:var(--card-accent)}
-  .game-card::before{
-    content:""; position:absolute; inset:0; z-index:1;
-    background:linear-gradient(180deg, transparent 30%, rgba(8,12,18,.55) 65%, rgba(8,12,18,.92) 100%);
+  .game-card:hover{transform:translateY(-8px); border-color:var(--card-accent);
+    box-shadow:0 22px 50px rgba(0,0,0,.5), 0 0 0 1px var(--card-accent)}
+  /* 顶部渐隐遮罩，保证文字可读 */
+  .game-card::after{
+    content:""; position:absolute; inset:0; z-index:2;
+    background:linear-gradient(180deg, transparent 28%, rgba(8,12,18,.5) 62%, rgba(8,12,18,.94) 100%);
   }
-  .game-card .bg{position:absolute; inset:0; background-size:cover; background-position:center top; transition:.4s}
-  .game-card:hover .bg{transform:scale(1.05)}
-  .game-card .info{position:absolute; left:0; right:0; bottom:0; z-index:2; padding:1.4rem 1.6rem}
-  .game-card .title{font-size:1.35rem; font-weight:600; letter-spacing:.01em}
-  .game-card .sub{font-family:var(--mono); font-size:.72rem; color:var(--dim); letter-spacing:.1em; margin-top:.35rem}
-  .game-card .tags{margin-top:.7rem; display:flex; gap:.5rem; flex-wrap:wrap}
+  /* 图案化封面：基础斜向渐变 + 叠加纹样 */
+  .game-card .bg{position:absolute; inset:0; z-index:0; transition:.5s var(--ease)}
+  .game-card:hover .bg{transform:scale(1.06)}
+  /* 纹样层（网格/光束/圆环），随主题着色 */
+  .game-card .art{position:absolute; inset:0; z-index:1; opacity:.9; transition:.5s var(--ease); mix-blend-mode:screen}
+  .game-card:hover .art{transform:scale(1.04) rotate(1deg); opacity:1}
+
+  .game-card .info{position:absolute; left:0; right:0; bottom:0; z-index:3; padding:1.6rem 1.8rem}
+  .game-card .title{font-size:1.4rem; font-weight:600; letter-spacing:.01em}
+  .game-card .sub{font-family:var(--mono); font-size:.72rem; color:var(--dim); letter-spacing:.1em; margin-top:.4rem}
+  .game-card .tags{margin-top:.85rem; display:flex; gap:.5rem; flex-wrap:wrap}
   .game-card .tag{
-    font-family:var(--mono); font-size:.64rem; letter-spacing:.08em;
-    padding:.2rem .55rem; border-radius:3px; border:1px solid;
+    font-family:var(--mono); font-size:.66rem; letter-spacing:.08em;
+    padding:.24rem .6rem; border-radius:4px; border:1px solid; backdrop-filter:blur(3px);
   }
-  .azur{--card-accent:#d8a24a}
-  .azur .bg{background:linear-gradient(135deg,#16344a,#1d4d63)}
-  .azur .tag{color:#d8a24a; border-color:rgba(216,162,74,.4)}
-  .azur .arrow{color:#d8a24a}
-  .nikke{--card-accent:#e0455f}
-  .nikke .bg{background:linear-gradient(135deg,#2a1620,#1e0f16)}
-  .nikke .tag{color:#e0455f; border-color:rgba(224,69,95,.4)}
-  .nikke .arrow{color:#e0455f}
   .game-card .arrow{
-    position:absolute; top:1.3rem; right:1.5rem; z-index:2; font-size:1.4rem;
-    opacity:0; transform:translateX(-6px); transition:.25s;
+    position:absolute; top:1.4rem; right:1.6rem; z-index:3; font-size:1.5rem;
+    opacity:0; transform:translateX(-8px); transition:.3s var(--ease);
   }
   .game-card:hover .arrow{opacity:1; transform:translateX(0)}
+
+  /* ===== 碧蓝航线：深海钢青 + 黄铜，波纹光束纹样 ===== */
+  .azur{--card-accent:#d8a24a}
+  .azur .bg{background:
+    radial-gradient(120% 90% at 15% 0%, #1d4d63 0%, #16344a 45%, #0d1f30 100%)}
+  .azur .art{
+    background:
+      repeating-linear-gradient(115deg, rgba(216,162,74,.08) 0 2px, transparent 2px 46px),
+      radial-gradient(60% 80% at 78% 18%, rgba(240,192,99,.22), transparent 60%),
+      repeating-linear-gradient(0deg, rgba(143,185,199,.05) 0 1px, transparent 1px 32px);
+  }
+  .azur .tag{color:#f0c063; border-color:rgba(216,162,74,.45); background:rgba(216,162,74,.08)}
+  .azur .arrow{color:#f0c063}
+
+  /* ===== NIKKE：暗红夜幕 + 光斑，斜切光束纹样 ===== */
+  .nikke{--card-accent:#e0455f}
+  .nikke .bg{background:
+    radial-gradient(120% 90% at 85% 0%, #3a1826 0%, #2a1620 45%, #160a10 100%)}
+  .nikke .art{
+    background:
+      repeating-linear-gradient(-115deg, rgba(224,69,95,.1) 0 2px, transparent 2px 48px),
+      radial-gradient(55% 75% at 22% 20%, rgba(255,107,130,.24), transparent 60%),
+      repeating-linear-gradient(0deg, rgba(199,155,176,.05) 0 1px, transparent 1px 32px);
+  }
+  .nikke .tag{color:#ff6b82; border-color:rgba(224,69,95,.45); background:rgba(224,69,95,.08)}
+  .nikke .arrow{color:#ff6b82}
 
   footer{padding:1.5rem clamp(1.5rem,5vw,4rem); font-family:var(--mono);
     font-size:.66rem; color:var(--dim); letter-spacing:.1em; text-align:center;
@@ -84,6 +110,7 @@
   <div class="games">
     <a class="game-card azur" href="azur_lane/viewer/index.html">
       <div class="bg"></div>
+      <div class="art"></div>
       <span class="arrow">→</span>
       <div class="info">
         <div class="title">碧蓝航线</div>
@@ -96,12 +123,14 @@
     </a>
     <a class="game-card nikke" href="nikke/viewer/index.html">
       <div class="bg"></div>
+      <div class="art"></div>
       <span class="arrow">→</span>
       <div class="info">
         <div class="title">胜利女神：NIKKE</div>
         <div class="sub">GODDESS OF VICTORY: NIKKE</div>
         <div class="tags">
-          <span class="tag">Spine · 25</span>
+          <span class="tag">Spine · 403</span>
+          <span class="tag">角色 · 240</span>
         </div>
       </div>
     </a>

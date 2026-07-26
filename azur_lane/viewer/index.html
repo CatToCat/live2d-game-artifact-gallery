@@ -71,6 +71,12 @@
     backdrop-filter:blur(14px);
   }
   .brand{display:flex;align-items:center;gap:var(--s3)}
+  .home-link{
+    font-family:var(--mono);font-size:var(--fx2);letter-spacing:.22em;color:var(--brass);
+    border:1px solid var(--brass);padding:.32rem .6rem;border-radius:var(--r1);
+    text-transform:uppercase;text-decoration:none;transition:.2s var(--ease);white-space:nowrap;
+  }
+  .home-link:hover{background:var(--brass);color:var(--abyss)}
   .brand .mark{
     font-family:var(--mono);font-size:var(--fx2);letter-spacing:.3em;
     color:var(--brass);border:1px solid var(--brass);
@@ -327,6 +333,7 @@
 </head>
 <body>
 <header>
+  <a class="home-link" href="../../index.html">← 首页</a>
   <div class="brand">
     <span class="mark">UNPACK</span>
     <h1>解包资源查看器<small>AZUR LANE · APK ASSET EXTRACTION</small></h1>
