@@ -136,6 +136,57 @@
     padding:.3rem .55rem; border-radius:4px;
   }
 
+  /* 动作控制台：右上角折叠抽屉 + 紧凑网格（参考 azur_lane live2d 动作面板）*/
+  .motions{
+    position:absolute; top:3.4rem; right:1.4rem; z-index:9;
+    display:flex; flex-direction:column; align-items:flex-end; gap:.5rem;
+    pointer-events:none;
+  }
+  .motions .m-toggle{
+    font-family:var(--mono); font-size:.72rem; letter-spacing:.08em;
+    background:rgba(30,15,22,.88); border:1px solid var(--line-lit); color:var(--foam);
+    padding:.5rem .9rem; border-radius:6px; cursor:pointer; transition:.15s;
+    backdrop-filter:blur(10px); white-space:nowrap; display:inline-flex;
+    align-items:center; gap:.5rem; box-shadow:0 6px 18px rgba(0,0,0,.35);
+    pointer-events:auto;
+  }
+  .motions .m-toggle:hover{border-color:var(--accent); color:var(--accent-lit)}
+  .motions .m-toggle .caret{transition:transform .2s; font-size:.66rem; opacity:.8}
+  .motions.open .m-toggle{border-color:var(--accent); color:var(--accent-lit)}
+  .motions.open .m-toggle .caret{transform:rotate(180deg)}
+  .motions .m-count{
+    color:var(--accent-lit); font-weight:600;
+    background:var(--accent-dim); padding:0 .4rem; border-radius:4px;
+  }
+  .motions .m-list{
+    display:none; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.42rem;
+    width:min(360px,calc(100vw - var(--page-x)*2));
+    max-height:calc(100vh - var(--header-h) - 6rem); overflow-y:auto;
+    padding:.75rem; border-radius:10px;
+    background:rgba(30,15,22,.9); border:1px solid var(--line-lit);
+    backdrop-filter:blur(12px); box-shadow:0 6px 18px rgba(0,0,0,.35);
+    pointer-events:auto;
+  }
+  .motions.open .m-list{display:grid}
+  .motions .m-list::-webkit-scrollbar{width:6px}
+  .motions .m-list::-webkit-scrollbar-thumb{background:var(--line); border-radius:3px}
+  .motions .mgroup{
+    grid-column:1/-1; font-family:var(--mono); font-size:.58rem; letter-spacing:.16em;
+    color:var(--foam-dim); text-transform:uppercase; padding:.45rem .25rem .05rem;
+  }
+  .motions .mbtn{
+    font-family:var(--mono); font-size:.68rem; letter-spacing:.04em;
+    background:rgba(42,22,32,.92); border:1px solid var(--line-lit); color:var(--ivory);
+    padding:.4rem .55rem; border-radius:4px; cursor:pointer; transition:.15s;
+    text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .motions .mbtn:hover{border-color:var(--accent); color:var(--accent-lit); background:rgba(60,25,35,.95)}
+  .motions .mbtn.on{background:var(--accent); color:var(--abyss); border-color:var(--accent); font-weight:600}
+  @media(max-width:720px){
+    .motions{top:3rem; right:.6rem}
+    .motions .m-list{width:min(320px,calc(100vw - 1.2rem)); max-height:70vh}
+  }
+
   /* 顶部分类导航 */
   .nav-tabs{margin-left:auto; display:flex; gap:.3rem; background:rgba(0,0,0,.25);
     padding:.28rem; border-radius:8px;}
@@ -194,6 +245,7 @@
           <option value="name">名称 A→Z</option>
           <option value="poses">姿态数多→少</option>
         </select>
+        <select class="sortsel card-cols" id="card-cols" title="每行卡片数"></select>
         <input class="search" id="search" placeholder="搜索 NIKKE (名字/id)…" autocomplete="off" style="max-width:220px">
       </div>
     </div>
@@ -205,11 +257,12 @@
     <button class="back-btn" id="back">← 返回列表</button>
     <div class="pose-tabs" id="pose-tabs"></div>
     <div class="ver-badge" id="ver-badge"></div>
+    <div class="motions" id="motion-panel"></div>
     <div class="stage">
       <div id="player-container"></div>
       <div class="loading" id="loading">加载模型</div>
       <div class="stage-hint">
-        <b>拖拽</b> 平移 · <b>滚轮</b> 缩放 · 底部控件可切换动作/播放<br>
+        <b>拖拽</b> 平移 · <b>滚轮</b> 缩放 · 点击右上角 <b>动作</b> 切换动画<br>
         EsotericSoftware Spine · 自动匹配 4.0 / 4.1 runtime
       </div>
     </div>
@@ -220,7 +273,50 @@
 <script src="../../shared/vendor/spine-player4.1.js"></script>
 <script>
 const POSE_LABEL = { fb: '立绘', cover: '半身', aim: '瞄准', skillcut: '技能演出' };
-const DEFAULT_ANIM = { fb: 'idle', cover: 'cover_idle', aim: 'aim_idle', skillcut: 'idle' };
+
+// 循环类动画（待机/站立）——这些应循环播放；其余（技能/攻击/一次性演出）单次播放。
+// 兼容多种命名：idle / Idle / aim_idle / cover_idle / stand / standby / wait / loop
+const LOOP_RE = /(^|_)(idle|stand|standby|wait|loop)(\b|_|$)/i;
+const isLoopAnim = a => LOOP_RE.test(a);
+
+// 找一个可循环的待机动画作为“回落”目标（技能/一次性动作播完后回到它）。
+// 优先精确 idle 系列，其次任意循环类。
+function findIdle(anims){
+  return anims.find(a=>/(^|_)idle($|_)/i.test(a))   // idle / aim_idle / cover_idle / idle_1
+      || anims.find(a=>isLoopAnim(a))               // 任意循环类
+      || null;
+}
+
+// 进入某姿态时的默认动画：
+//  - skillcut 姿态：默认直接播“技能演出”本身（skillcut_1 / 含 skillcut 的），
+//    而不是待机——否则进了技能演出姿态却只看到 idle，很奇怪。
+//  - 其它姿态：优先待机(idle)，否则第一个。
+function pickDefaultAnim(anims, pose){
+  if(pose === 'skillcut'){
+    const sk = anims.find(a=>/skillcut/i.test(a)) || anims.find(a=>!isLoopAnim(a));
+    if(sk) return sk;
+  }
+  return findIdle(anims) || anims[0];
+}
+
+// 播放动画：循环类直接循环；一次性动画播完后自动排队回落到 idle（模拟游戏内技能放完回待机）
+function playAnim(pl, anims, name){
+  const loop = isLoopAnim(name);
+  pl.setAnimation(name, loop);
+  if(!loop){
+    const idle = findIdle(anims);
+    if(idle && idle !== name){
+      try{ pl.addAnimation(idle, true, 0); }catch(e){}   // 播完接 idle 循环
+    }
+  }
+  pl.play();
+}
+
+const CARD_COLS_KEY = 'nikke.cardColumns';
+const CARD_COL_OPTIONS = [
+  ['auto', '自动列数'], ['3', '每行 3 个'], ['4', '每行 4 个'], ['5', '每行 5 个'],
+  ['6', '每行 6 个'], ['8', '每行 8 个'], ['10', '每行 10 个'],
+];
 
 let manifest = null;
 let current = { idx: -1, pose: 'fb' };
@@ -230,8 +326,29 @@ const ui = { cat: 'all', pose: '', ver: '', sort: 'id', q: '' };
 
 async function boot(){
   manifest = await (await fetch('nikke_manifest.json')).json();
+  setupCardColumns();
   buildGrid();
   document.getElementById('back').onclick = exitStage;
+}
+
+function applyCardColumns(value){
+  document.querySelectorAll('.grid').forEach(grid => {
+    grid.style.gridTemplateColumns = value && value !== 'auto'
+      ? `repeat(${value}, minmax(0, 1fr))`
+      : '';
+  });
+}
+
+function setupCardColumns(){
+  const saved = localStorage.getItem(CARD_COLS_KEY) || 'auto';
+  const sel = document.getElementById('card-cols');
+  sel.innerHTML = CARD_COL_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+  sel.value = saved;
+  sel.onchange = () => {
+    localStorage.setItem(CARD_COLS_KEY, sel.value);
+    applyCardColumns(sel.value);
+  };
+  applyCardColumns(saved);
 }
 
 const CAT_NOUN = { all:'条目', character:'角色', event:'活动', story:'剧情', misc:'其它' };
@@ -345,6 +462,86 @@ function disposePlayer(){
     player = null;
   }
   document.getElementById('player-container').innerHTML = '';
+  const panel = document.getElementById('motion-panel');
+  panel.innerHTML = '';
+  panel.classList.remove('open');
+}
+
+// Spine 动作控制台：折叠开关 + 分组紧凑网格（参考 azur_lane live2d 动作面板）。
+// 点击 chip 播放动画并高亮；一次性动画（技能演出等）播完自动回落到 idle 并把高亮移到 idle。
+function buildMotionPanel(pl, anims, activeAnim){
+  const panel = document.getElementById('motion-panel');
+  panel.innerHTML = '';
+  panel.classList.remove('open');
+  if(!anims || !anims.length) return;
+
+  // 分类：待机(idle) / 技能演出(skillcut) / 触摸(touch/talk) / 其他
+  const cats = { idle:[], skill:[], touch:[], other:[] };
+  anims.forEach(a => {
+    if(isLoopAnim(a)) cats.idle.push(a);
+    else if(/skillcut|skill|burst|attack|fire|shot|shoot|action|special/i.test(a)) cats.skill.push(a);
+    else if(/touch|talk|blink|face|emotion/i.test(a)) cats.touch.push(a);
+    else cats.other.push(a);
+  });
+  const natural = (a,b)=>a.localeCompare(b,undefined,{numeric:true});
+  Object.values(cats).forEach(arr=>arr.sort(natural));
+
+  // 折叠开关
+  const toggle = document.createElement('button');
+  toggle.className = 'm-toggle';
+  toggle.innerHTML = `动作 <span class="m-count">${anims.length}</span><span class="caret">▾</span>`;
+  toggle.onclick = () => panel.classList.toggle('open');
+  panel.appendChild(toggle);
+
+  // 按钮网格
+  const list = document.createElement('div');
+  list.className = 'm-list';
+  panel.appendChild(list);
+
+  const highlight = (name) => {
+    list.querySelectorAll('.mbtn').forEach(x=>x.classList.toggle('on', x.dataset.anim === name));
+  };
+
+  // 一次性动画播完 → addAnimation 会自动接 idle；把高亮同步到实际播放的 idle
+  try{
+    pl.animationState.addListener({
+      complete: (entry) => {
+        if(entry.loop) return;                 // 循环动画的每轮 complete 不处理
+        const idle = findIdle(anims);
+        if(idle) highlight(idle);              // 回落到 idle，高亮随之切换
+      }
+    });
+  }catch(e){}
+
+  const makeBtn = a => {
+    const btn = document.createElement('button');
+    btn.className = 'mbtn';
+    btn.dataset.anim = a;
+    btn.textContent = a;
+    btn.title = a;
+    btn.classList.toggle('on', a === activeAnim);
+    btn.onclick = () => {
+      highlight(a);
+      try{ playAnim(pl, anims, a); }
+      catch(e){ console.error('playAnim', a, e); }
+    };
+    return btn;
+  };
+  const addGroup = (label, arr) => {
+    if(!arr.length) return;
+    const h = document.createElement('div');
+    h.className = 'mgroup';
+    h.textContent = `${label} · ${arr.length}`;
+    list.appendChild(h);
+    arr.forEach(a => list.appendChild(makeBtn(a)));
+  };
+  addGroup('待机', cats.idle);
+  addGroup('技能演出', cats.skill);
+  addGroup('触摸', cats.touch);
+  addGroup('其他', cats.other);
+
+  // 默认展开，让动作列表一目了然（比 spine-player 右下角控件更明显）
+  panel.classList.add('open');
 }
 
 function setLoading(on, msg, isErr){
@@ -391,7 +588,6 @@ async function loadPose(){
     if(tk !== loadToken) return;
 
     const key = `${c.id}_${current.pose}`;
-    const wantAnim = DEFAULT_ANIM[current.pose];
     player = new runtime.SpinePlayer('player-container', {
       skelUrl: key,
       rawDataURIs: { [key]: dataUri },
@@ -403,19 +599,18 @@ async function loadPose(){
       backgroundColor: '#00000000',
       mipmaps: current.pose === 'fb',
       preserveDrawingBuffer: true,
-      showControls: true,
+      showControls: false,
       defaultMix: 0.25,
       success: (pl) => {
         if(tk!==loadToken) return;
         setLoading(false);
         try{
           const anims = pl.animationState.data.skeletonData.animations.map(a=>a.name);
-          if(!anims.length) return;
-          // 优先该姿态的默认动画名，其次含 idle 的，最后第一个
-          const pick = anims.includes(wantAnim) ? wantAnim
-            : (anims.find(a=>/idle/i.test(a)) || anims[0]);
-          pl.setAnimation(pick, true);
-        }catch(e){}
+          if(!anims.length){ buildMotionPanel(pl, [], null); return; }
+          const pick = pickDefaultAnim(anims, current.pose);
+          playAnim(pl, anims, pick);
+          buildMotionPanel(pl, anims, pick);
+        }catch(e){ buildMotionPanel(pl, [], null); }
       },
       error: (pl, msg) => { if(tk===loadToken) setLoading(true, '加载失败: ' + (msg||''), true); },
     });
