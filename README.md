@@ -102,31 +102,43 @@ pip install -r requirements.txt
 ## 自动更新
 
 ```bash
-cd live2d-game-artifact-gallery/scripts
-python update.py          # 增量更新：只处理相比上次有变化的资源
-python update.py --full   # 全量重建（忽略缓存）
+cd live2d-game-artifact-gallery/azur_lane/scripts
+python update.py             # 增量更新：只处理相比上次有变化的资源
+python update.py --full      # 全量重建（忽略缓存）
+python update.py --skip-meta # 跳过社区元数据更新
 ```
 
 流程：
-1. **握手拿版本** → 下载最新 hash 清单到 `config/hashes/`
-2. **增量对比** → 与 `config/hashes_prev/` 比对，找出新增/变更的资源
-3. **下载 + 还原** → 只下变化的 bundle，重建对应立绘/模型/动作
-4. **刷新 manifest** → 更新查看器分组数据，保存本次清单供下次对比
+1. **拉社区元数据** → 皮肤名/分组/发布次序（多源回落，失败不阻断）
+2. **握手拿版本** → 下载最新 hash 清单到 `config/hashes/`
+3. **增量对比** → 与 `config/hashes_prev/` 比对，找出新增/变更的资源
+4. **下载 + 还原** → 只下变化的 bundle（对变化项强制 md5 校验），重建对应立绘/模型/动作
+5. **刷新 manifest** → 更新查看器分组数据，回写首页/README 计数，保存本次清单供下次对比
+
+### 元数据说明
+角色名 / 分组 / 发布次序来自社区仓库（官方那份配置表是自定义加密二进制，
+需逆向 il2cpp 才能解，详见 `azur_lane/DATASOURCE.md`）。
+`fetch_metadata.py` 按序尝试三个源（主源 JSON → jsDelivr 镜像 → AzurLaneTools 的 Lua），
+带完整性校验（条目数下限，挡掉上游的残缺文件）、防回退、原子写入；
+全部源失败时保留现有文件继续，只是新皮肤可能暂时未分组。
 
 ### 网络说明
 - 脚本默认走本地代理 `127.0.0.1:7897`（海外 CDN，国内需要）。
-  在海外服务器 / GitHub Actions 上运行时，把 `scripts/config.py` 的 `USE_PROXY = False`。
+  在海外服务器 / GitHub Actions 上运行时，把 `azur_lane/scripts/config.py` 的 `USE_PROXY = False`。
 - gate 握手是 **raw TCP socket**（不走 HTTP 代理），代理时用 SOCKS5；
   资源下载走 HTTPS（HTTP 代理）。
+- 官方 CDN 有限流，偶发连接重置；脚本已内置重试，必要时隔几十秒重跑。
 
 ---
 
 ## 单步执行（调试用）
 
 ```bash
-cd live2d-game-artifact-gallery/scripts
+cd live2d-game-artifact-gallery/azur_lane/scripts
+python fetch_metadata.py             # 只更新社区元数据（--force 强制）
 python fetch_manifests.py            # 只拉最新清单
 python dl_from_csv.py L2D            # 只下 Live2D 的 bundle（PAINTING/PIC/L2D）
+python dl_from_csv.py --verify L2D   # 同上 + md5 校验（可发现同尺寸的内容改动）
 python build.py live2d               # 只还原 Live2D（含动作）
 python build.py painting             # 只还原立绘
 python gen_manifest.py               # 只重新生成查看器 manifest

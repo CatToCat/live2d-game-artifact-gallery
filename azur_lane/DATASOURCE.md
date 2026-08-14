@@ -48,11 +48,15 @@ CDN 上的资源文件名不含"这是哪个角色的哪个皮肤"这类信息�
 
 | 内容 | 来源 |
 |------|------|
-| 皮肤分组 / 发布顺序 / 中英文名 | 社区数据库 [`Fernando2603/AzurLaneData`](https://github.com/Fernando2603/AzurLaneData) 的 `ship_skin_template.json` |
+| 皮肤分组 / 发布顺序 / 中英文名 | 社区数据库 [`Fernando2603/AzurLaneData`](https://github.com/Fernando2603/AzurLaneData) 的 `sharecfgdata/ship_skin_template.json`（含 jsDelivr 镜像与 Lua 备源，详见下文「元数据为何不自己解官方文件」） |
 
 本地缓存位置：`azur_lane/config/cfg_json/ship_skin_template.json`
-- 以皮肤 `id`（递增 = 发布顺序）为分组键
-- 提供 `painting`（立绘名）→ `ship_group` / `id` / `name` 的映射
+（由 `fetch_metadata.py` 自动拉取，也是 `update.py` 的第一步）
+- 提供 `painting`（立绘名）→ `ship_group` / `id` / `name` / `shop_id` 的映射
+- 分组键 = 皮肤 `id`
+- **排序键 = `shop_id`**（商店上架序号，随版本递增，是真实发布次序）。
+  注意皮肤 `id` = `ship_group*10 + group_index`，只是舰船编号，与发布时间无关，
+  早期误用它排「最新」会把新皮排到中间
 
 ---
 
@@ -107,23 +111,59 @@ python update.py --full   # 全量重下重建
 ```
 
 `update.py` 流程：
-1. 握手拿版本 → 下载最新 hash 清单到 `config/hashes/`
-2. 与 `config/hashes_prev/` 比对，找出新增/变更（md5 不同）的资源
-3. 下载变化的 bundle → 还原立绘/模型/动作
-4. 刷新 `viewer/manifest.json`，保存本次清单供下次对比
+1. 拉社区元数据（多源回落，失败不阻断，见下节）
+2. 握手拿版本 → 下载最新 hash 清单到 `config/hashes/`
+3. 与 `config/hashes_prev/` 比对，找出新增/变更（md5 不同）的资源
+4. 下载变化的 bundle（对变化项强制 md5 校验）→ 还原立绘/模型/动作
+5. 刷新 `viewer/manifest.json`，回写首页/README 计数，保存本次清单供下次对比
+
+可选参数：`--full` 全量重建，`--skip-meta` 跳过元数据更新。
 
 ### 分步（调试）
 
 | 脚本 | 作用 |
 |------|------|
+| `fetch_metadata.py` | 拉社区皮肤元数据（多源回落 + 完整性校验 + 原子写入） |
 | `fetch_manifests.py` | gate 握手拿版本 → 下载各类型 hash 清单 CSV |
 | `dl_from_csv.py [PAINTING\|L2D\|PIC]` | 按清单多线程下载 bundle（断点续传，按 size 跳过已有） |
+| `dl_from_csv.py --verify L2D` | 同上但额外比对 md5，可发现「内容变了但字节数没变」的改动 |
 | `build.py painting` | 立绘还原（子进程串行，防内存崩溃，可断点续传） |
 | `build.py live2d` | Live2D 还原（moc3 + 贴图 + physics + 动作） |
 | `rebuild_painting.py <tex> <out.png>` | 单张立绘重建（供调试） |
 | `extract_live2d.py <bundle> <dir> <name>` | 单个 Live2D 模型提取（供调试） |
 | `motion_convert.py <bundle> <dir>` | 单个 bundle 的动作转换（供调试） |
 | `gen_manifest.py` | 生成查看器 manifest（分组/代表图/排序） |
+
+### 元数据为何不自己解官方文件
+
+官方 CDN 上**确实有**这份配置表（`AZL.csv` 里可见
+`sharecfgdata/ship_skin_template,3947871,3a7795ce...`，按 `{CDN}/resource/{md5}` 能正常下载），
+但它是蛮啾自定义的二进制容器，实测：
+
+| 检测项 | 结果 |
+|--------|------|
+| 文件头 | `e8 0a 08 08`，**无 `UnityFS`**，UnityPy 解出 0 个对象 |
+| zlib / gzip / zip | 全部失败（6 种偏移 × 3 种 wbits） |
+| 单字节 XOR / 取反 | 256 个 key 全试，无命中 |
+| 明文字段名 | `painting` / `shop_id` / `wuzang_4` 均搜不到 |
+
+字符串表也被编码过，要解需反编译 `libil2cpp.so` 找反序列化函数，属逆向工程范畴。
+社区仓库的数据正是别人做完这步后 dump 的结果，故直接复用。
+
+多源配置在 `config.py` 的 `SKIN_TPL_SOURCES`，按序尝试，第一个通过校验的即采用：
+
+| 源 | 格式 | 说明 |
+|----|------|------|
+| `Fernando2603/AzurLaneData` (raw) | JSON | 主源，`sharecfgdata/` 下的完整版 |
+| 同上的 jsDelivr 镜像 | JSON | 换 host，raw.githubusercontent 被墙/重置时兜底 |
+| `AzurLaneTools/AzurLaneLuaScripts` | Lua | 原始 Lua 脚本，更新更勤，由 `parse_lua()` 转换 |
+
+保护机制：
+- **完整性校验**：带 `painting` 的条目数须 ≥ `SKIN_TPL_MIN_ENTRIES`(2000)。
+  上游 `sharecfg/`（注意不是 `sharecfgdata/`）下有个 148 KB 残缺版，`painting` 解析结果为 0，会被拦下
+- **防回退**：新数据条目数少于本地现有时跳过（除 `--force`）
+- **原子写入 + 失败保留**：写临时文件再 `os.replace`；所有源都失败时不动现有文件，仅告警
+
 
 ### 关键技术点
 
