@@ -16,15 +16,57 @@ VAR  = ["n","rw","hx","g","ex","hd","bh","h","p","d","renwu"]
 
 
 def load_skin_map():
+    """painting -> {group, id, name, rel}。
+
+    rel = 发布次序权重，取自 shop_id（商店上架序号，随版本递增，是真实的发布时间序）。
+    皮肤 id 只是 ship_group*10+group_index（舰船编号），与发布时间无关，不能用来排"最新"。
+    无 shop_id 的皮肤（默认皮/非商店皮）用同组兄弟按 group_index 插值估算；仍无从估算则 rel=0。
+    """
     skins = json.load(open(SKIN_TPL, encoding="utf-8"))
     p2info = {}
+    groups = defaultdict(list)
     for k, v in skins.items():
         if k == "all" or not isinstance(v, dict):
             continue
         p, i, g, nm = v.get("painting"), v.get("id"), v.get("ship_group"), v.get("name", "")
         if p and i is not None:
-            p2info[p.lower()] = {"group": g, "id": i, "name": nm}
+            shop, gidx = v.get("shop_id"), v.get("group_index")
+            info = {"group": g, "id": i, "name": nm,
+                    "rel": shop if isinstance(shop, int) and shop > 0 else 0,
+                    "gidx": gidx if isinstance(gidx, int) else 0}
+            p2info[p.lower()] = info
+            if g:
+                groups[g].append(info)
+
+    # 兜底：同组内按 group_index 用已知 shop_id 插值，估算缺失皮肤的发布次序
+    for items in groups.values():
+        known = sorted((x for x in items if x["rel"]), key=lambda x: x["gidx"])
+        if not known:
+            continue
+        for x in items:
+            if x["rel"]:
+                continue
+            lo = [k for k in known if k["gidx"] < x["gidx"]]
+            hi = [k for k in known if k["gidx"] > x["gidx"]]
+            if lo and hi:
+                x["rel"] = (lo[-1]["rel"] + hi[0]["rel"]) // 2
+            elif lo:
+                x["rel"] = lo[-1]["rel"] + 1
+            elif hi:
+                x["rel"] = max(hi[0]["rel"] - 1, 1)
     return p2info
+
+
+def find_info(name, p2info):
+    """按 resolve 的同一套后缀剥离规则找皮肤元数据（_hx 等变体继承母皮）。"""
+    n = name.lower()
+    if n in p2info:
+        return p2info[n]
+    base, _ = split_suffixes(n)
+    if base in p2info:
+        return p2info[base]
+    base2, _ = split_suffixes(base)
+    return p2info.get(base2)
 
 
 def split_suffixes(name):
@@ -113,11 +155,12 @@ def generate():
     for sid, items in by_skin.items():
         rep = pick_rep(items)
         items_sorted = sorted(items, key=lambda x: (kind_order.get(x["kind"], 3), suffix_count(x["name"]), x["name"]))
+        info = find_info(rep["name"], p2info)
         chars.append({"group": items[0]["group"], "en": rep["en"], "rep": rep["name"],
-                      "rep_path": rep["path"], "skin": sid,
+                      "rep_path": rep["path"], "skin": sid, "rel": (info or {}).get("rel", 0),
                       "items": [{"name": x["name"], "path": x["path"], "kind": x["kind"]} for x in items_sorted]})
     for p in ungrouped:
-        chars.append({"group": -1, "en": "", "rep": p["name"], "rep_path": p["path"], "skin": -1,
+        chars.append({"group": -1, "en": "", "rep": p["name"], "rep_path": p["path"], "skin": -1, "rel": 0,
                       "items": [{"name": p["name"], "path": p["path"], "kind": p["kind"]}]})
 
     # Live2D 模型
@@ -142,14 +185,18 @@ def generate():
         if os.path.exists(m3):
             _, sid, en, _ = resolve(d, p2info)
             ver = moc3_version(os.path.join(C.MODELS_DIR, d, f"{d}.moc3"))
+            info = find_info(d, p2info)
             models.append({"name": d, "path": f"../data/models/{d}/{d}.model3.json",
-                           "id": sid, "en": en, "cover": find_cover(d), "ver": ver})
+                           "id": sid, "en": en, "cover": find_cover(d), "ver": ver,
+                           "rel": (info or {}).get("rel", 0)})
 
     manifest = {"models": models, "characters": chars}
     os.makedirs(C.VIEWER_DIR, exist_ok=True)
     json.dump(manifest, open(C.MANIFEST_PATH, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
     grouped = sum(1 for c in chars if c["skin"] > 0)
     print(f"皮肤组 {len(chars)} (真实 {grouped}), 立绘 {len(paintings)}, 模型 {len(models)}")
+    rel_ok = sum(1 for m in models if m["rel"])
+    print(f"发布次序(rel) 覆盖: 模型 {rel_ok}/{len(models)}, 皮肤组 {sum(1 for c in chars if c['rel'])}/{len(chars)}")
     print(f"-> {C.MANIFEST_PATH} ({os.path.getsize(C.MANIFEST_PATH)/1024:.0f} KB)")
 
 

@@ -531,13 +531,20 @@ function sortItems(items, mode){
   if(mode === 'name'){
     arr.sort((a,b) => a.name.localeCompare(b.name));
   }else{
-    // new: id 降序; old: id 升序。未匹配(id=-1)始终排末尾
+    // new: 发布次序降序; old: 升序。
+    // 排序键优先用 rel(shop_id 派生的真实上架次序)，缺失时回落到皮肤 id。
+    // 皮肤 id = ship_group*10+group_index 只表示舰船编号，不是发布时间，故仅作兜底。
     const dir = mode === 'old' ? 1 : -1;
+    const key = x => (x.rel > 0 ? x.rel : (x.id < 0 ? null : x.id));
+    const tier = x => (x.rel > 0 ? 0 : (x.id < 0 ? 2 : 1));
     arr.sort((a,b) => {
-      const av = a.id < 0 ? null : a.id, bv = b.id < 0 ? null : b.id;
+      const ta = tier(a), tb = tier(b);
+      if(ta !== tb) return ta - tb;            // 有 rel 的优先, 无任何信息的垫底
+      const av = key(a), bv = key(b);
       if(av === null && bv === null) return a.name.localeCompare(b.name);
       if(av === null) return 1;
       if(bv === null) return -1;
+      if(av === bv) return a.name.localeCompare(b.name);
       return (av - bv) * dir;
     });
   }
@@ -881,12 +888,18 @@ function sortChars(items, mode){
   if(mode === 'name'){
     arr.sort((a,b) => a.rep.localeCompare(b.rep));
   }else{
+    // 同 sortItems: 优先按 rel(真实上架次序), 无则回落皮肤 id
     const dir = mode === 'old' ? 1 : -1;
+    const key = x => (x.rel > 0 ? x.rel : (x.skin < 0 ? null : x.skin));
+    const tier = x => (x.rel > 0 ? 0 : (x.skin < 0 ? 2 : 1));
     arr.sort((a,b) => {
-      const av = a.skin < 0 ? null : a.skin, bv = b.skin < 0 ? null : b.skin;
+      const ta = tier(a), tb = tier(b);
+      if(ta !== tb) return ta - tb;
+      const av = key(a), bv = key(b);
       if(av === null && bv === null) return a.rep.localeCompare(b.rep);
       if(av === null) return 1;
       if(bv === null) return -1;
+      if(av === bv) return a.rep.localeCompare(b.rep);
       return (av - bv) * dir;
     });
   }
