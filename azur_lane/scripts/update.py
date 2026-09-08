@@ -95,7 +95,7 @@ def main(full=False, skip_meta=False):
             _invalidate_paint_done(paint_changed if not full else None)
             build.build_paintings()
         if l2d_changed or full:
-            build.build_live2d()
+            build.build_live2d(only=None if full else l2d_changed)
 
     # 4) 刷新 manifest + 保存本次清单供下次对比
     print("\n[5/5] 刷新 manifest...")

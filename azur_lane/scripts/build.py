@@ -42,14 +42,19 @@ def build_paintings():
     print("立绘还原完成", flush=True)
 
 
-def build_live2d():
-    """Live2D：还原 moc3+贴图+physics+model3，并生成 motion。"""
+def build_live2d(only=None):
+    """Live2D：还原 moc3+贴图+physics+model3，并生成 motion。
+    only: 可选的 'live2d/<name>' 或 '<name>' 集合，只重建这些模型（增量更新用）。
+    """
     import UnityPy
     UnityPy.config.FALLBACK_UNITY_VERSION = C.UNITY_FALLBACK_VERSION
     from extract_live2d import extract_model
     from motion_convert import build_path_map, clip_to_motion3
 
     bundles = sorted(f for f in glob.glob(os.path.join(C.LIVE2D_BUNDLE, "*")) if os.path.isfile(f))
+    if only:
+        want = {p.split("/")[-1] for p in only}
+        bundles = [b for b in bundles if os.path.basename(b) in want]
     os.makedirs(C.MODELS_DIR, exist_ok=True)
     print(f"Live2D: {len(bundles)} 模型", flush=True)
     ok = fail = 0
@@ -97,7 +102,8 @@ def build_live2d():
 
 if __name__ == "__main__":
     what = sys.argv[1] if len(sys.argv) > 1 else "all"
+    names = set(sys.argv[2:]) or None      # 可选：只重建指定模型
     if what in ("painting", "all"):
         build_paintings()
     if what in ("live2d", "all"):
-        build_live2d()
+        build_live2d(only=names)
