@@ -114,18 +114,18 @@ def fetch(force=False):
             if n < C.SKIN_TPL_MIN_ENTRIES:
                 # 残缺文件(如上游 sharecfg/ 那份 148KB 版本)在此被拦下
                 errors.append(f"{label}: 仅 {n} 条有效(<{C.SKIN_TPL_MIN_ENTRIES})，疑似残缺，跳过")
-                print(f"  ✗ {errors[-1]}", flush=True)
+                print(f"  [x] {errors[-1]}", flush=True)
                 continue
             if not force and n < have:
                 errors.append(f"{label}: {n} 条 < 本地 {have} 条，疑似回退，跳过")
-                print(f"  ✗ {errors[-1]}", flush=True)
+                print(f"  [x] {errors[-1]}", flush=True)
                 continue
             _write_atomic(DST, skins)
-            print(f"  ✓ {label}: {n} 条 -> {DST}", flush=True)
+            print(f"  [OK] {label}: {n} 条 -> {DST}", flush=True)
             return True, n
         except Exception as e:
             errors.append(f"{label}: {type(e).__name__} {e}")
-            print(f"  ✗ {label} 失败: {type(e).__name__} {e}", flush=True)
+            print(f"  [x] {label} 失败: {type(e).__name__} {e}", flush=True)
 
     if have:
         print("  ! 所有元数据源均不可用，保留现有文件继续(新皮肤可能未分组)", flush=True)

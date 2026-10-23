@@ -42,9 +42,21 @@ def make_session():
 
 
 def fetch_index(session):
-    r = session.get(C.INDEX_URL, timeout=30)
-    r.raise_for_status()
-    return r.json()
+    for url in (C.INDEX_URL, C.INDEX_URL_MIRROR):
+        for attempt in range(3):
+            try:
+                r = session.get(url, timeout=30)
+                r.raise_for_status()
+                return r.json()
+            except Exception as e:
+                time.sleep(1)
+                continue
+    # 兜底：若网络拉取失败，尝试使用本地已有缓存
+    cached = os.path.join(C.DATA_DIR, "_l2d_index.json")
+    if os.path.exists(cached):
+        print("  [提示] 使用本地缓存的 l2d.json 索引")
+        return json.load(open(cached, encoding="utf-8"))
+    raise RuntimeError("无法获取 l2d.json 索引")
 
 
 def download(session, url, dest):
@@ -171,6 +183,9 @@ def _pose_exists_local(cid, pose):
 def fetch_icon(session, cid):
     """下载 si_{id}_00_s.png 头像图标；返回本地文件名或 None。
     Cloudflare Pages 对缺失文件返回 200 + HTML，需按 content-type 甄别。"""
+    dest = os.path.join(C.DATA_DIR, cid, "_icon.png")
+    if os.path.exists(dest) and os.path.getsize(dest) > 0:
+        return "_icon.png"
     url = f"{C.SPRITE_BASE}/si_{cid}_00_s.png"
     try:
         r = session.get(url, timeout=30)
