@@ -121,6 +121,8 @@ def load_name_map():
             for e in json.load(open(idx_path, encoding="utf-8")):
                 if e.get("name"):
                     names[e["id"]] = e["name"]
+                    if e.get("f"):
+                        names[e["f"].lower()] = e["name"]
         except Exception:
             pass
 
@@ -217,6 +219,35 @@ def main():
     cc = Counter(c["category"] for c in chars)
     print("版本分布:", dict(vc))
     print("分类分布:", dict(cc))
+    _sync_counts(len(chars), cc.get("character", 0))
+
+
+def _sync_counts(n_total, n_chars):
+    """把 manifest 的实际数量回写到 index.html 与 README.md，避免手动改漏。"""
+    repo = os.path.dirname(C.BASE)
+    idx_path = os.path.join(repo, "index.html")
+    readme_path = os.path.join(repo, "README.md")
+    if os.path.exists(idx_path):
+        try:
+            src = open(idx_path, encoding="utf-8").read()
+            out = re.sub(r'(<span class="tag">Spine · )\d+(</span>)', rf'\g<1>{n_total}\g<2>', src)
+            out = re.sub(r'(<span class="tag">角色 · )\d+(</span>)', rf'\g<1>{n_chars}\g<2>', out)
+            if out != src:
+                open(idx_path, "w", encoding="utf-8", newline="").write(out)
+                print("  计数已同步: index.html")
+        except Exception as e:
+            print(f"  计数同步失败 (index.html): {e}")
+
+    if os.path.exists(readme_path):
+        try:
+            src = open(readme_path, encoding="utf-8").read()
+            out = re.sub(r'(- \*\*立绘 / 模型\*\*：)\d+( 套 Spine 骨骼动画（其中角色 )\d+( 套）)',
+                         rf'\g<1>{n_total}\g<2>{n_chars}\g<3>', src)
+            if out != src:
+                open(readme_path, "w", encoding="utf-8", newline="").write(out)
+                print("  计数已同步: README.md")
+        except Exception as e:
+            print(f"  计数同步失败 (README.md): {e}")
 
 
 if __name__ == "__main__":

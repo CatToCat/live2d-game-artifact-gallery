@@ -12,7 +12,7 @@
 - 支持**本地一键自动更新**：拉取最新版本 → 增量下载 → 还原 → 刷新查看器
 
 **NIKKE（胜利女神）现状**：
-- **立绘 / 模型**：Spine 骨骼动画，支持 **立绘(fb) / 半身(cover) / 瞄准(aim)** 三种姿态
+- **立绘 / 模型**：882 套 Spine 骨骼动画（其中角色 519 套），支持 **立绘(fb) / 半身(cover) / 瞄准(aim)** 三种姿态
 - 查看器自动识别 **Spine 4.0 / 4.1** 版本并加载对应 runtime（EsotericSoftware 官方 spine-player），
   正确处理预乘 alpha（premultipliedAlpha），透明背景，自带动作切换/播放控件
 - 数据来源：社区 [`Nikke-db`](https://github.com/Nikke-db/Nikke-db.github.io) 已解包的 Spine 资源

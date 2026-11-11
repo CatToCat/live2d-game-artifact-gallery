@@ -15,9 +15,10 @@ DATA_DIR = os.path.join(BASE, "data")
 VIEWER_DIR = os.path.join(BASE, "viewer")
 MANIFEST_PATH = os.path.join(VIEWER_DIR, "nikke_manifest.json")
 
-# 数据源（优先用 Cloudflare Pages，比 raw.githubusercontent 稳定得多）
-INDEX_URL = "https://nikke-db-legacy.pages.dev/js/json/l2d.json"
-INDEX_URL_MIRROR = "https://raw.githubusercontent.com/Nikke-db/Nikke-db.github.io/main/js/json/l2d.json"
+# 数据源（优先用社区当前维护的 nikke-db-vue 完整索引，745+ 条）
+INDEX_URL = "https://raw.githubusercontent.com/Nikke-db/nikke-db-vue/main/src/utils/json/l2d.json"
+INDEX_URL_MIRROR = "https://cdn.jsdelivr.net/gh/Nikke-db/nikke-db-vue@main/src/utils/json/l2d.json"
+INDEX_URL_LEGACY = "https://nikke-db-legacy.pages.dev/js/json/l2d.json"
 CDN_BASE = "https://nikke-db-legacy.pages.dev/l2d"
 # 渲染好的头像图标（用于列表封面，避免直接用打包 atlas 显示为碎片）
 SPRITE_BASE = "https://nikke-db-legacy.pages.dev/images/sprite"
@@ -31,7 +32,7 @@ POSES = ("fb", "cover", "aim")
 PROXY = os.environ.get("NIKKE_PROXY", "http://127.0.0.1:7897")
 
 # 下载并发
-WORKERS = 8
+WORKERS = 12
 
 # ── 本地客户端资源解包（从游戏 content-addressed 缓存直接提取）────────────
 # 目录结构: <LOCAL_ASSETS>/naps/<hash前2位>/<md5>  (无扩展名)

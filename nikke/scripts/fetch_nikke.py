@@ -42,13 +42,29 @@ def make_session():
 
 
 def fetch_index(session):
-    for url in (C.INDEX_URL, C.INDEX_URL_MIRROR):
+    urls = [
+        getattr(C, "INDEX_URL", None),
+        getattr(C, "INDEX_URL_MIRROR", None),
+        getattr(C, "INDEX_URL_LEGACY", None),
+    ]
+    for url in urls:
+        if not url:
+            continue
         for attempt in range(3):
             try:
                 r = session.get(url, timeout=30)
                 r.raise_for_status()
-                return r.json()
-            except Exception as e:
+                data = r.json()
+                if isinstance(data, list) and len(data) > 50:
+                    cached = os.path.join(C.DATA_DIR, "_l2d_index.json")
+                    os.makedirs(C.DATA_DIR, exist_ok=True)
+                    try:
+                        with open(cached, "w", encoding="utf-8") as f:
+                            json.dump(data, f, ensure_ascii=False, indent=2)
+                    except Exception:
+                        pass
+                    return data
+            except Exception:
                 time.sleep(1)
                 continue
     # 兜底：若网络拉取失败，尝试使用本地已有缓存
@@ -64,25 +80,28 @@ def download(session, url, dest):
     if os.path.exists(dest) and os.path.getsize(dest) > 0:
         return True, os.path.getsize(dest), True
     tmp = dest + ".part"
-    try:
-        r = session.get(url, timeout=60, stream=True)
-        if r.status_code != 200:
-            return False, 0, False
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        n = 0
-        with open(tmp, "wb") as f:
-            for chunk in r.iter_content(65536):
-                f.write(chunk)
-                n += len(chunk)
-        os.replace(tmp, dest)
-        return True, n, False
-    except Exception:
-        if os.path.exists(tmp):
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
-        return False, 0, False
+    for attempt in range(3):
+        try:
+            r = session.get(url, timeout=60, stream=True)
+            if r.status_code != 200 or r.headers.get("content-type", "").startswith("text/html"):
+                return False, 0, False
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            n = 0
+            with open(tmp, "wb") as f:
+                for chunk in r.iter_content(65536):
+                    f.write(chunk)
+                    n += len(chunk)
+            os.replace(tmp, dest)
+            return True, n, False
+        except Exception:
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+            if attempt < 2:
+                time.sleep(0.5)
+    return False, 0, False
 
 
 def parse_atlas_pages(atlas_text):
@@ -95,10 +114,30 @@ def parse_atlas_pages(atlas_text):
     return pages
 
 
-def pose_paths(cid, pose):
+_INDEX_CACHE = None
+
+
+def get_index_entry(cid):
+    global _INDEX_CACHE
+    if _INDEX_CACHE is None:
+        idx_path = os.path.join(C.DATA_DIR, "_l2d_index.json")
+        if os.path.exists(idx_path):
+            try:
+                data = json.load(open(idx_path, encoding="utf-8"))
+                _INDEX_CACHE = {e["id"]: e for e in data}
+            except Exception:
+                _INDEX_CACHE = {}
+        else:
+            _INDEX_CACHE = {}
+    return _INDEX_CACHE.get(cid, {})
+
+
+def pose_paths(cid, pose, f_name=None):
     """返回 (远端子路径前缀, skel名, atlas名) 用于该姿态。"""
+    if not f_name:
+        f_name = get_index_entry(cid).get("f")
     if pose == "fb":
-        stem = f"{cid}_00"
+        stem = f_name if f_name else f"{cid}_00"
         sub = ""
     else:
         stem = f"{cid}_{pose}_00"
@@ -106,19 +145,73 @@ def pose_paths(cid, pose):
     return sub, f"{stem}.skel", f"{stem}.atlas"
 
 
-def fetch_pose(session, cid, pose):
+def get_local_pose(cid, pose, f_name=None):
+    """检查本地是否已完整拥有该姿态（skel + atlas + 所有贴图 png）。如果是，直接返回描述字典。"""
+    sub, skel_name, atlas_name = pose_paths(cid, pose, f_name)
+    local_dir = os.path.join(C.DATA_DIR, cid, sub.rstrip("/")) if sub else os.path.join(C.DATA_DIR, cid)
+    skel_path = os.path.join(local_dir, skel_name)
+    atlas_path = os.path.join(local_dir, atlas_name)
+    if not (os.path.exists(skel_path) and os.path.getsize(skel_path) > 0 and
+            os.path.exists(atlas_path) and os.path.getsize(atlas_path) > 0):
+        # 兼容已有以 f_name(小写) 为目录名的情况（例如 eventscene_terminusticket_01）
+        if f_name and pose == "fb":
+            alt_dir = os.path.join(C.DATA_DIR, f_name.lower())
+            if os.path.isdir(alt_dir):
+                alt_skel = os.path.join(alt_dir, skel_name)
+                alt_atlas = os.path.join(alt_dir, atlas_name)
+                if (os.path.exists(alt_skel) and os.path.getsize(alt_skel) > 0 and
+                        os.path.exists(alt_atlas) and os.path.getsize(alt_atlas) > 0):
+                    return {
+                        "pose": pose,
+                        "sub": "",
+                        "skel": skel_name,
+                        "atlas": atlas_name,
+                        "pages": parse_atlas_pages(open(alt_atlas, "r", encoding="utf-8", errors="ignore").read()),
+                    }
+        return None
+    try:
+        with open(atlas_path, "r", encoding="utf-8", errors="ignore") as f:
+            pages = parse_atlas_pages(f.read())
+    except Exception:
+        return None
+    if not pages:
+        return None
+    for p in pages:
+        png_path = os.path.join(local_dir, p)
+        if not (os.path.exists(png_path) and os.path.getsize(png_path) > 0):
+            return None
+    return {
+        "pose": pose,
+        "sub": sub,
+        "skel": skel_name,
+        "atlas": atlas_name,
+        "pages": pages,
+    }
+
+
+def fetch_pose(session, cid, pose, f_name=None):
     """拉取某角色某姿态。返回 dict 描述（None 表示该姿态不存在）。"""
-    sub, skel_name, atlas_name = pose_paths(cid, pose)
+    local_info = get_local_pose(cid, pose, f_name)
+    if local_info:
+        return local_info
+
+    sub, skel_name, atlas_name = pose_paths(cid, pose, f_name)
     base_url = f"{C.CDN_BASE}/{cid}/{sub}"
     local_dir = os.path.join(C.DATA_DIR, cid, sub.rstrip("/")) if sub else os.path.join(C.DATA_DIR, cid)
 
     # 先探测 atlas 是否存在
     atlas_url = base_url + atlas_name
-    try:
-        ra = session.get(atlas_url, timeout=30)
-    except Exception:
-        return None
-    if ra.status_code != 200 or not ra.content:
+    ra = None
+    for _ in range(3):
+        try:
+            ra = session.get(atlas_url, timeout=30)
+            if ra.status_code == 200 and ra.content:
+                if not ra.headers.get("content-type", "").startswith("text/html"):
+                    break
+        except Exception:
+            pass
+        time.sleep(0.5)
+    if ra is None or ra.status_code != 200 or not ra.content or ra.headers.get("content-type", "").startswith("text/html"):
         return None
     atlas_text = ra.content.decode("utf-8", "ignore")
     pages = parse_atlas_pages(atlas_text)
@@ -151,15 +244,25 @@ def fetch_pose(session, cid, pose):
 
 def fetch_character(session, entry):
     cid = entry["id"]
-    result = {"id": cid, "name": entry["name"], "poses": {}}
+    f_val = entry.get("f")
+    if not f_val:
+        f_val = get_index_entry(cid).get("f")
+    name = entry.get("name")
+    if not name or name == cid:
+        name = get_index_entry(cid).get("name", cid)
+
+    result = {"id": cid, "name": name, "poses": {}}
     if "version" in entry:
         result["version"] = entry["version"]
+    if f_val:
+        result["f"] = f_val
+
     # only_missing=True 时只补抓本地尚不存在的姿态（用于扫描补漏，不重复下载）
     only_missing = entry.get("only_missing", False)
     for pose in C.POSES:
-        if only_missing and _pose_exists_local(cid, pose):
+        if only_missing and _pose_exists_local(cid, pose, f_val):
             continue
-        info = fetch_pose(session, cid, pose)
+        info = fetch_pose(session, cid, pose, f_val)
         if info:
             result["poses"][pose] = info
     if not result["poses"]:
@@ -171,13 +274,19 @@ def fetch_character(session, entry):
     return result
 
 
-def _pose_exists_local(cid, pose):
+def _pose_exists_local(cid, pose, f_name=None):
     """本地是否已存在该姿态的 skel（用于扫描模式跳过已抓取的姿态）。"""
-    sub, skel_name, _ = pose_paths(cid, pose)
+    sub, skel_name, _ = pose_paths(cid, pose, f_name)
     local_dir = (os.path.join(C.DATA_DIR, cid, sub.rstrip("/"))
                  if sub else os.path.join(C.DATA_DIR, cid))
     skel = os.path.join(local_dir, skel_name)
-    return os.path.exists(skel) and os.path.getsize(skel) > 0
+    if os.path.exists(skel) and os.path.getsize(skel) > 0:
+        return True
+    if f_name and pose == "fb":
+        alt_skel = os.path.join(C.DATA_DIR, f_name.lower(), skel_name)
+        if os.path.exists(alt_skel) and os.path.getsize(alt_skel) > 0:
+            return True
+    return False
 
 
 def fetch_icon(session, cid):
@@ -225,6 +334,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("ids", nargs="*", help="只拉取指定角色 id")
     ap.add_argument("--limit", type=int, default=0, help="只拉前 N 个角色")
+    ap.add_argument("--new-only", action="store_true",
+                    help="仅拉取本地 manifest 尚未收录的新角色/新条目")
     ap.add_argument("--scan-existing", action="store_true",
                     help="不依赖索引，扫描 data/ 已有角色目录逐个补抓 CDN 上的 fb/cover/aim")
     ap.add_argument("--only-missing", action="store_true",
@@ -248,6 +359,15 @@ def main():
         print("拉取索引 ...")
         index = fetch_index(session)
         print(f"索引共 {len(index)} 个条目")
+
+        if args.new_only and os.path.exists(C.MANIFEST_PATH):
+            try:
+                m = json.load(open(C.MANIFEST_PATH, encoding="utf-8"))
+                have_ids = set(c["id"] for c in m.get("characters", []))
+                index = [e for e in index if e["id"] not in have_ids and (not e.get("f") or e["f"].lower() not in have_ids)]
+                print(f"过滤后剩余 {len(index)} 个未收录新条目")
+            except Exception:
+                pass
 
         if args.ids:
             wanted = set(args.ids)
@@ -278,12 +398,22 @@ def main():
             else:
                 print(f"  [{done}/{len(index)}] {e['id']:14s} 无资源，跳过")
 
-    # 保存本次抓取到的角色元数据，供 manifest 生成使用
+    # 保存本次抓取到的角色元数据，并与已有历史合并，供 manifest 生成使用
     meta_path = os.path.join(C.DATA_DIR, "_fetched.json")
-    json.dump(results, open(meta_path, "w", encoding="utf-8"),
+    all_meta = {}
+    if os.path.exists(meta_path):
+        try:
+            for item in json.load(open(meta_path, encoding="utf-8")):
+                all_meta[item["id"]] = item
+        except Exception:
+            pass
+    for item in results:
+        all_meta[item["id"]] = item
+
+    json.dump(list(all_meta.values()), open(meta_path, "w", encoding="utf-8"),
               ensure_ascii=False, indent=2)
     print(f"\n完成 {len(results)}/{len(index)} 个角色，用时 {time.time()-t0:.1f}s")
-    print(f"元数据 -> {meta_path}")
+    print(f"元数据已合并 ({len(all_meta)} 条) -> {meta_path}")
 
 
 if __name__ == "__main__":
