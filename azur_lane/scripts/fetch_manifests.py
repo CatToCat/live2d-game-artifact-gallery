@@ -9,8 +9,20 @@ import azlassets.protobuf as pb
 from azlassets.versioncontrol import parse_version_string
 
 
+def _safe_recv_bytes(self, bytesize):
+    """读取固定长度；对端提前关闭时抛错而不是死循环(recv 返回 b'' 会让原实现无限循环)。"""
+    data = b""
+    while len(data) < bytesize:
+        chunk = self.recv(bytesize - len(data))
+        if not chunk:
+            raise ConnectionError("gate 提前关闭连接")
+        data += chunk
+    return data
+
+
 def _install_socks():
     if not C.USE_PROXY:
+        pb.ConnectionSocket.recv_bytes = _safe_recv_bytes
         return
     import socks
     class P(socks.socksocket):
@@ -20,6 +32,7 @@ def _install_socks():
             self.settimeout(25)
     for a in ("disconnect", "send_command", "recv_command", "recv_bytes"):
         setattr(P, a, getattr(pb.ConnectionSocket, a))
+    P.recv_bytes = _safe_recv_bytes
     pb.ConnectionSocket = P
 
 
